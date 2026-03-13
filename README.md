@@ -116,7 +116,7 @@ TraceLens is a desktop application built with Python and Tkinter for extracting,
 ## Project Structure
 
 ```text
-Metadata Analyser/
+TraceLens/
 ├── src/
 │   ├── main.py
 │   ├── gui.py
