@@ -1,6 +1,7 @@
 import sys
 from pathlib import Path
 import types
+import subprocess
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SRC_PATH = PROJECT_ROOT / "src"
@@ -185,11 +186,53 @@ def test_view_recent_history_handles_invalid_limit(monkeypatch, capsys):
 
 def test_launch_gui_calls_main(monkeypatch):
     called = {"value": 0}
-    monkeypatch.setattr(cli, "run_gui_main", lambda: called.__setitem__("value", called["value"] + 1))
+    monkeypatch.setattr(cli, "_run_gui_main", lambda: called.__setitem__("value", called["value"] + 1))
 
     cli.launch_gui()
 
     assert called["value"] == 1
+
+
+def test_launch_gui_missing_dependency(monkeypatch, capsys):
+    def _raise_missing():
+        raise ModuleNotFoundError("No module named 'matplotlib'", name="matplotlib")
+
+    monkeypatch.setattr(cli, "_run_gui_main", _raise_missing)
+
+    cli.launch_gui()
+    out = capsys.readouterr().out
+
+    assert "GUI dependency missing: matplotlib" in out
+    assert "pip install -r requirements.txt" in out
+
+
+def test_launch_gui_uses_project_venv_on_missing_dependency(monkeypatch, tmp_path, capsys):
+    def _raise_missing():
+        raise ModuleNotFoundError("No module named 'matplotlib'", name="matplotlib")
+
+    monkeypatch.setattr(cli, "_run_gui_main", _raise_missing)
+
+    fake_python = tmp_path / "python.exe"
+    fake_python.write_text("", encoding="utf-8")
+    monkeypatch.setattr(cli, "_project_venv_python", lambda: fake_python)
+
+    popen_calls = []
+
+    class _DummyProcess:
+        pass
+
+    def _fake_popen(cmd, cwd=None):
+        popen_calls.append((cmd, cwd))
+        return _DummyProcess()
+
+    monkeypatch.setattr(subprocess, "Popen", _fake_popen)
+
+    cli.launch_gui()
+    out = capsys.readouterr().out
+
+    assert len(popen_calls) == 1
+    assert str(fake_python) in popen_calls[0][0][0]
+    assert "GUI launched using project venv" in out
 
 
 def test_run_cli_help_then_exit(monkeypatch):

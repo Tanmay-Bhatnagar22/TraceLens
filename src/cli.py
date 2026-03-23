@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -25,7 +26,6 @@ import db
 import extractor
 import report
 import risk_analyzer
-from main import main as run_gui_main
 
 
 class Ansi:
@@ -267,9 +267,43 @@ def view_recent_history() -> None:
     print(color("-" * 100, Ansi.GRAY))
 
 
+def _run_gui_main() -> None:
+    from main import main as run_gui_main
+
+    run_gui_main()
+
+
+def _project_venv_python() -> Path:
+    if os.name == "nt":
+        return ROOT_DIR.parent / ".venv" / "Scripts" / "python.exe"
+    return ROOT_DIR.parent / ".venv" / "bin" / "python"
+
+
 def launch_gui() -> None:
     print(color("Launching TraceLens GUI...", Ansi.CYAN))
-    run_gui_main()
+    try:
+        _run_gui_main()
+    except ModuleNotFoundError as exc:
+        missing = exc.name or "a required package"
+        venv_python = _project_venv_python()
+
+        if venv_python.exists() and venv_python.resolve() != Path(sys.executable).resolve():
+            try:
+                subprocess.Popen(
+                    [str(venv_python), str(ROOT_DIR / "main.py")],
+                    cwd=str(ROOT_DIR.parent),
+                )
+                print(color(f"Current Python is missing: {missing}", Ansi.YELLOW))
+                print(color(f"GUI launched using project venv: {venv_python}", Ansi.GREEN))
+                return
+            except Exception as launch_exc:
+                print(color(f"Could not launch with project venv: {launch_exc}", Ansi.RED))
+
+        print(color(f"GUI dependency missing: {missing}", Ansi.YELLOW))
+        print(color(f"Current interpreter: {sys.executable}", Ansi.GRAY))
+        print(color("Install dependencies with: pip install -r requirements.txt", Ansi.YELLOW))
+    except Exception as exc:
+        print(color(f"Failed to launch GUI: {exc}", Ansi.RED))
 
 
 def help_text() -> None:
