@@ -300,7 +300,7 @@ class MetadataAnalyzerApp:
             fg="#666666",
             justify=CENTER,
         )
-        self.canvas_window_id = self.preview_canvas.create_window(0, 0, window=self.report_image_label, anchor="center")
+        self.canvas_window_id = self.preview_canvas.create_window(0, 0, window=self.report_image_label, anchor="n")
         
         # Bind canvas configure event to center image when canvas size changes
         self.preview_canvas.bind('<Configure>', self._on_canvas_configure)
@@ -1218,12 +1218,11 @@ class MetadataAnalyzerApp:
                 self.preview_image_zoom = 1.0  # Reset zoom when new image is loaded
                 
                 max_width = self.window_width - 280 if self.window_width else 900
-                max_height = self.window_height - 150 if self.window_height else 600
 
                 img_width, img_height = pil_img.size
                 width_ratio = max_width / img_width
-                height_ratio = max_height / img_height
-                scale_ratio = min(width_ratio, height_ratio, 1.0)
+                # Fit preview to width, keep full height scrollable for multi-page reports.
+                scale_ratio = min(width_ratio, 1.0)
 
                 if scale_ratio < 1.0:
                     new_width = int(img_width * scale_ratio)
@@ -1247,11 +1246,13 @@ class MetadataAnalyzerApp:
                     canvas_width = self.preview_canvas.winfo_width()
                     canvas_height = self.preview_canvas.winfo_height()
                     
-                    # Center the image
-                    self.preview_canvas.coords(self.canvas_window_id, canvas_width // 2, canvas_height // 2)
-                    self.preview_canvas.config(scrollregion=(0, 0, canvas_width, canvas_height))
-                    # At 100% zoom, no scrollbar needed
-                    self.preview_scrollbar.pack_forget()
+                    # Keep image anchored to top-center for natural vertical scrolling.
+                    self.preview_canvas.coords(self.canvas_window_id, canvas_width // 2, 10)
+                    self.preview_canvas.config(scrollregion=self.preview_canvas.bbox("all"))
+                    if img_height > canvas_height and self.preview_scrollbar and self.preview_scrollbar.winfo_exists():
+                        self.preview_scrollbar.pack(side=RIGHT, fill=Y)
+                    else:
+                        self.preview_scrollbar.pack_forget()
                 
                 # Update zoom display
                 if hasattr(self, 'zoom_display_label') and self.zoom_display_label:
@@ -1265,18 +1266,46 @@ class MetadataAnalyzerApp:
             try:
                 try:
                     from pdf2image import convert_from_path
+                    from PIL import Image, ImageDraw
                 except ImportError:
                     print("pdf2image not available")
                     return False
 
                 poppler_path = r"C:\\poppler\\Library\\bin"
-                if poppler_path:
-                    images = convert_from_path(pdf_path, dpi=150, first_page=1, last_page=1, poppler_path=poppler_path)
-                else:
-                    images = convert_from_path(pdf_path, dpi=150, first_page=1, last_page=1)
+                convert_kwargs = {"dpi": 150}
+                if os.path.isdir(poppler_path):
+                    convert_kwargs["poppler_path"] = poppler_path
+
+                images = convert_from_path(pdf_path, **convert_kwargs)
 
                 if images:
-                    _show_image_preview(images[0])
+                    if len(images) == 1:
+                        _show_image_preview(images[0])
+                        return True
+
+                    # Stitch all PDF pages into one tall image so users can scroll through full report.
+                    page_images = [img.convert("RGB") for img in images]
+                    page_spacing = 24
+                    max_width = max(img.width for img in page_images)
+                    total_height = sum(img.height for img in page_images) + page_spacing * (len(page_images) - 1)
+                    merged = Image.new("RGB", (max_width, total_height), "white")
+                    draw = ImageDraw.Draw(merged)
+
+                    y_offset = 0
+                    for page_index, page_img in enumerate(page_images, start=1):
+                        x_offset = (max_width - page_img.width) // 2
+                        merged.paste(page_img, (x_offset, y_offset))
+
+                        next_y_offset = y_offset + page_img.height
+                        if page_index < len(page_images):
+                            # Draw a separator in the spacing area between pages for visual clarity.
+                            sep_y = next_y_offset + (page_spacing // 2)
+                            draw.line((20, sep_y, max_width - 20, sep_y), fill=(180, 180, 180), width=2)
+                            draw.text((24, sep_y - 14), f"Page {page_index + 1}", fill=(120, 120, 120))
+
+                        y_offset = next_y_offset + page_spacing
+
+                    _show_image_preview(merged)
                     return True
                 return False
             except Exception as e:  # pragma: no cover - UI fallback
@@ -1340,7 +1369,14 @@ class MetadataAnalyzerApp:
                 
                 # Only center if canvas has valid dimensions
                 if canvas_width > 1 and canvas_height > 1:
-                    self.preview_canvas.coords(self.canvas_window_id, canvas_width // 2, canvas_height // 2)
+                    self.preview_canvas.coords(self.canvas_window_id, canvas_width // 2, 10)
+                    self.preview_canvas.config(scrollregion=self.preview_canvas.bbox("all"))
+                    if self.report_image_label and self.report_image_label.winfo_exists():
+                        label_height = self.report_image_label.winfo_height()
+                        if label_height > canvas_height and self.preview_scrollbar and self.preview_scrollbar.winfo_exists():
+                            self.preview_scrollbar.pack(side=RIGHT, fill=Y)
+                        elif self.preview_scrollbar and self.preview_scrollbar.winfo_exists():
+                            self.preview_scrollbar.pack_forget()
         except Exception:
             pass
 
@@ -1381,12 +1417,10 @@ class MetadataAnalyzerApp:
             
             # Calculate dimensions with zoom
             max_width = self.window_width - 280 if self.window_width else 900
-            max_height = self.window_height - 150 if self.window_height else 600
             
             img_width, img_height = self.preview_base_image.size
             width_ratio = max_width / img_width
-            height_ratio = max_height / img_height
-            base_scale_ratio = min(width_ratio, height_ratio, 1.0)
+            base_scale_ratio = min(width_ratio, 1.0)
             
             # Apply base scale and zoom
             final_scale = base_scale_ratio * self.preview_image_zoom
@@ -1407,9 +1441,9 @@ class MetadataAnalyzerApp:
                 canvas_width = self.preview_canvas.winfo_width()
                 canvas_height = self.preview_canvas.winfo_height()
                 
-                # Center the image window in the canvas
+                # Keep image anchored to top-center so full document can be scrolled.
                 x_center = canvas_width // 2
-                y_center = canvas_height // 2
+                y_center = 10
                 self.preview_canvas.coords(self.canvas_window_id, x_center, y_center)
                 
                 # Set scroll region to accommodate larger zoomed images
@@ -1417,8 +1451,10 @@ class MetadataAnalyzerApp:
                 scroll_height = max(canvas_height, new_height)
                 self.preview_canvas.config(scrollregion=(0, 0, scroll_width, scroll_height))
                 
-                # Keep scrollbar hidden (mousewheel scrolling is enabled)
-                self.preview_scrollbar.pack_forget()
+                if new_height > canvas_height and self.preview_scrollbar and self.preview_scrollbar.winfo_exists():
+                    self.preview_scrollbar.pack(side=RIGHT, fill=Y)
+                elif self.preview_scrollbar and self.preview_scrollbar.winfo_exists():
+                    self.preview_scrollbar.pack_forget()
             
             # Update zoom display
             if hasattr(self, 'zoom_display_label') and self.zoom_display_label:

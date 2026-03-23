@@ -186,36 +186,83 @@ class MetadataReporter:
         story.append(Paragraph(f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", date_style))
         story.append(Spacer(1, 20))
 
-        lines = metadata_text.strip().split('\n')
-        data = [['Property', 'Value']]
+        section_heading_style = ParagraphStyle(
+            'SectionHeading',
+            parent=styles['Heading2'],
+            fontSize=12,
+            spaceAfter=8,
+            spaceBefore=8,
+            alignment=0
+        )
 
-        for line in lines:
-            if ':' in line and line.strip():
-                key, value = line.split(':', 1)
-                data.append([key.strip(), value.strip()])
-            elif line.strip():
-                data.append(['Note', line.strip()])
-
-        if len(data) > 1:
-            table = Table(data, colWidths=[2.5*inch, 4*inch])
+        def _build_section_table(rows):
+            table_data = [['Property', 'Value']] + rows
+            table = Table(table_data, colWidths=[2.5 * inch, 4 * inch])
             table.setStyle(TableStyle([
                 ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
                 ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
                 ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
                 ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
                 ('FONTSIZE', (0, 0), (-1, 0), 12),
-                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
                 ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
                 ('GRID', (0, 0), (-1, -1), 1, colors.black),
                 ('VALIGN', (0, 0), (-1, -1), 'TOP'),
                 ('FONTSIZE', (0, 1), (-1, -1), 10),
             ]))
-            story.append(table)
-        else:
-            for line in lines:
-                if line.strip():
-                    story.append(Paragraph(line, styles['Normal']))
-                    story.append(Spacer(1, 6))
+            return table
+
+        lines = (metadata_text or '').split('\n')
+        metadata_rows = []
+        privacy_rows = []
+        timeline_rows = []
+        section = 'metadata'
+
+        for raw_line in lines:
+            line = raw_line.strip()
+            if not line:
+                continue
+
+            normalized_heading = line.rstrip(':').strip().lower()
+
+            if normalized_heading == 'privacy risk analysis':
+                section = 'privacy'
+                continue
+            if normalized_heading == 'forensic timeline':
+                section = 'timeline'
+                continue
+
+            target_rows = metadata_rows
+            if section == 'privacy':
+                target_rows = privacy_rows
+            elif section == 'timeline':
+                target_rows = timeline_rows
+
+            if ':' in line:
+                key, value = line.split(':', 1)
+                target_rows.append([key.strip(), value.strip()])
+            elif line.startswith('-'):
+                target_rows.append(['Note', line.lstrip('-').strip()])
+            else:
+                target_rows.append(['Note', line])
+
+        if not metadata_rows:
+            metadata_rows.append(['Info', 'No metadata details found'])
+        if not privacy_rows:
+            privacy_rows.append(['Info', 'No privacy risk analysis found'])
+        if not timeline_rows:
+            timeline_rows.append(['Info', 'No forensic timeline events found'])
+
+        story.append(Paragraph('Metadata Details', section_heading_style))
+        story.append(_build_section_table(metadata_rows))
+        story.append(Spacer(1, 14))
+
+        story.append(Paragraph('Privacy Risk Analysis', section_heading_style))
+        story.append(_build_section_table(privacy_rows))
+        story.append(Spacer(1, 14))
+
+        story.append(Paragraph('Forensic Timeline', section_heading_style))
+        story.append(_build_section_table(timeline_rows))
 
         doc.build(story)
 
