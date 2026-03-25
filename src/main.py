@@ -1,6 +1,7 @@
 """Main entry point for TraceLens application."""
 
 from gui import run_gui
+from tkinter import messagebox, Tk
 
 
 def main() -> None:
@@ -11,7 +12,14 @@ def main() -> None:
     try:
         run_gui()
     except Exception as exc:
-        # Avoid crashing silently; surface the startup issue to the console.
+        # Avoid crashing silently; surface the startup issue.
+        try:
+            root = Tk()
+            root.withdraw()
+            messagebox.showerror("TraceLens Startup Error", str(exc))
+            root.destroy()
+        except Exception:
+            pass
         print(f"Failed to launch GUI: {exc}")
 
 

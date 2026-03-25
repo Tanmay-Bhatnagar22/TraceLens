@@ -11,6 +11,7 @@ from tkinter import messagebox
 import os
 import json
 import tempfile
+import sys
 import db
 import report
 import matplotlib.pyplot as plt
@@ -104,6 +105,15 @@ class MetadataAnalyzerApp:
     # ------------------------------------------------------------------
     # Application lifecycle
     # ------------------------------------------------------------------
+    @staticmethod
+    def _resource_path(relative_path: str) -> str:
+        """Resolve resource path for dev mode and PyInstaller bundles."""
+        try:
+            base_path = sys._MEIPASS
+        except Exception:
+            base_path = os.path.abspath(".")
+        return os.path.join(base_path, relative_path)
+
     def run(self) -> None:
         """Launch the GUI application.
         
@@ -135,8 +145,15 @@ class MetadataAnalyzerApp:
         self.root.geometry(f"{self.window_width}x{self.window_height}+{self.x_position}+{self.y_position}")
         self.root.resizable(False, False)
 
-        logo = PhotoImage(file="Metadata.png")
-        self.root.iconphoto(True, logo)
+        logo_path = self._resource_path("Metadata.png")
+        if os.path.exists(logo_path):
+            try:
+                # Keep a reference to prevent Tk from garbage-collecting the image.
+                self.logo = PhotoImage(file=logo_path)
+                self.root.iconphoto(True, self.logo)
+            except Exception:
+                # Icon should never block app startup.
+                pass
 
     def _create_widgets(self) -> None:
         """Build UI components: title, notebook tabs (Extractor, Editor, History), controls, and status bar."""
@@ -2973,8 +2990,7 @@ class MetadataAnalyzerApp:
     def menu_credits(self) -> None:
         credits_text = (
             "TraceLens\n\n"
-            "Development Team:\n"
-            "  • Tanmay Bhatnagar\n"
+            "Development By: Tanmay Bhatnagar\n\n"
         )
         messagebox.showinfo("Credits", credits_text)
 
@@ -3029,7 +3045,7 @@ class MetadataAnalyzerApp:
         support_text = (
             "Contact Support\n\n"
             "Email: tanmaybhatnagar760@gmail.com\n"
-            "GitHub: https://github.com/Tanmay-Bhatnagar22/Metadata-Analyzer\n\n"
+            "GitHub: https://github.com/Tanmay-Bhatnagar22/TraceLens\n\n"
             "Response Time: 24-48 hours\n\n"
             "For urgent issues, please use the\n"
             "'Report an Issue' feature or visit\n"
