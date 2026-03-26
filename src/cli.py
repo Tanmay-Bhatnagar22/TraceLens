@@ -270,7 +270,7 @@ def view_recent_history() -> None:
 def _run_gui_main() -> None:
     from main import main as run_gui_main
 
-    run_gui_main()
+    run_gui_main(forced_mode="gui")
 
 
 def _project_venv_python() -> Path:
