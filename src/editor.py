@@ -96,7 +96,7 @@ class MetadataEditor:
             updated_metadata = parsed_data['metadata']
 
             import sqlite3
-            with sqlite3.connect('file_metadata.db') as conn:
+            with sqlite3.connect(self.db_client.db_path) as conn:
                 cursor = conn.cursor()
                 cursor.execute('''
                     UPDATE metadata 
