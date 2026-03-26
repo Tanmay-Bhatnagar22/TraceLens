@@ -3,15 +3,43 @@ from datetime import datetime, timedelta
 import pandas as pd
 import json
 import os
+import tempfile
 import report
+
+
+def _default_db_path() -> str:
+    """Return a writable default SQLite path for the current user.
+
+    Installed apps can run from read-only locations (for example Program Files),
+    so the database must live under a user-writable data directory.
+    """
+    env_override = os.getenv("TRACELENS_DB_PATH")
+    if env_override:
+        return env_override
+
+    if os.name == "nt":
+        base_dir = os.getenv("LOCALAPPDATA") or os.path.join(os.path.expanduser("~"), "AppData", "Local")
+    else:
+        base_dir = os.getenv("XDG_DATA_HOME") or os.path.join(os.path.expanduser("~"), ".local", "share")
+
+    app_dir = os.path.join(base_dir, "TraceLens")
+    try:
+        os.makedirs(app_dir, exist_ok=True)
+        return os.path.join(app_dir, "file_metadata.db")
+    except Exception:
+        # Last-resort fallback prevents startup failure on unexpected FS issues.
+        return os.path.join(tempfile.gettempdir(), "TraceLens-file_metadata.db")
 
 
 class MetadataDatabase:
     """Object-oriented wrapper around SQLite metadata storage."""
 
-    def __init__(self, db_path: str = "file_metadata.db", reporter=report) -> None:
-        self.db_path = db_path
+    def __init__(self, db_path: str | None = None, reporter=report) -> None:
+        self.db_path = db_path or _default_db_path()
         self.reporter = reporter
+        db_dir = os.path.dirname(os.path.abspath(self.db_path))
+        if db_dir:
+            os.makedirs(db_dir, exist_ok=True)
         self._ensure_tables()
 
     # ------------------------------------------------------------------

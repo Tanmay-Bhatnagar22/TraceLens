@@ -48,7 +48,7 @@ def test_metadata_database_init():
     """Test database initialization."""
     db = MetadataDatabase()
     assert db is not None
-    assert db.db_path == "file_metadata.db"
+    assert os.path.basename(db.db_path) == "file_metadata.db"
 
 
 def test_format_file_size():
