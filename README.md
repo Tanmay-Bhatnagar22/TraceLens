@@ -6,6 +6,7 @@
 ![Tests](https://img.shields.io/badge/tests-pytest-informational.svg)
 ![GUI](https://img.shields.io/badge/GUI-Tkinter-ff69b4.svg)
 ![Database](https://img.shields.io/badge/database-SQLite-003b57.svg)
+![Release](https://img.shields.io/github/v/release/Tanmay-Bhatnagar22/TraceLens)
 
 **TraceLens** is a comprehensive desktop application for extracting, analyzing, editing, and managing file metadata with a focus on privacy and forensic risk assessment. Built with Python and Tkinter, it provides both a user-friendly GUI and a powerful command-line interface for professionals, forensic analysts, and privacy-conscious users.
 
