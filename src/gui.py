@@ -914,7 +914,7 @@ class MetadataAnalyzerApp:
             return
         self.c1_text.config(state=NORMAL)
         self.c1_text.delete(1.0, END)
-        self.c1_text.insert(END, "Welcome to TraceLens: A Comprehensive Metadata Analysis Toolkit\n", "header")
+        self.c1_text.insert(END, "Welcome to TraceLens: Intelligent Metadata Analysis & Privacy Inspection Toolkit\n", "header")
         self.c1_text.insert(END, "\nThis tool allows you to extract & edit metadata from various file types including images, documents, and audio files.\n\n")
         self.c1_text.insert(END, "Getting Started:\n", "bold")
         self.c1_text.insert(END, "1. Click 'Choose File' to select a file\n2. Click 'Extract' to analyze its metadata\n3. Use 'Generate report' to export the results\n\n")
@@ -1816,7 +1816,7 @@ class MetadataAnalyzerApp:
 
     def menu_show_about(self) -> None:
         about_text = (
-            "TraceLens\n\n"
+            "TraceLens: Intelligent Metadata Analysis & Privacy Inspection Toolkit\n\n"
             "Version 1.0\n\n"
             "A comprehensive tool for extracting, editing, and analyzing\n"
             "metadata from various file types.\n\n"
@@ -2984,12 +2984,12 @@ class MetadataAnalyzerApp:
     def menu_check_updates(self) -> None:
         messagebox.showinfo(
             "Check for Updates",
-            "You are using TraceLens v1.0\n\nAlready up to date!\n\nFor the latest version, visit the project repository.",
+            "You are using TraceLens: Intelligent Metadata Analysis & Privacy Inspection Toolkit v1.0\n\nAlready up to date!\n\nFor the latest version, visit the project repository.",
         )
 
     def menu_credits(self) -> None:
         credits_text = (
-            "TraceLens\n\n"
+            "TraceLens: Intelligent Metadata Analysis & Privacy Inspection Toolkit\n\n"
             "Development By: Tanmay Bhatnagar\n\n"
         )
         messagebox.showinfo("Credits", credits_text)
