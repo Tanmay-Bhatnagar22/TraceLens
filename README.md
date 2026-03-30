@@ -118,6 +118,7 @@ Note: *If file isn't modified only creation date is shown in timeline.*
 
 #### Preview/Reports Tab
 ![alt text](Screenshots/20260324-1117-24.0504736.gif)
+Note: *Poppler needs to be installed in windows to see preview*
 
 #### History Tab
 ![alt text](Screenshots/20260324-1127-00.5345709.gif)
