@@ -407,6 +407,7 @@ Comprehensive statistics and insights:
 TraceLens/
 ├── src/                           # Source code directory
 │   ├── main.py                    # Application entry point
+│   ├── cli.py                     # Command-line interface 
 │   ├── gui.py                     # Tkinter GUI implementation
 │   ├── extractor.py               # Metadata extraction engine
 │   ├── editor.py                  # Metadata editing 
@@ -472,6 +473,13 @@ The application follows a **layered architecture** with clear separation of conc
 - Initializes the application
 - Launches the GUI
 - Handles startup errors and logging
+
+#### **cli.py** - Command-Line Interface Layer
+- Provides interactive, menu-driven terminal workflow
+- Exposes extraction, history, reporting, and risk analysis actions without GUI
+- Handles CLI input validation and user prompts
+- Integrates with core modules (`extractor.py`, `db.py`, `report.py`, `risk_analyzer.py`)
+- Supports automation-friendly usage in headless environments
 
 #### **gui.py** - Presentation Layer
 - Tkinter GUI implementation
