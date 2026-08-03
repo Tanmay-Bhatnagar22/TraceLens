@@ -1,12 +1,3 @@
-"""Compatibility wrapper for the moved extractor module."""
-
-from __future__ import annotations
-
-import sys
-from importlib import import_module
-
-_module = import_module("core.extractor.extractor")
-sys.modules[__name__] = _module
 from hachoir.metadata import extractMetadata
 from hachoir.parser import createParser
 from PyPDF2 import PdfReader

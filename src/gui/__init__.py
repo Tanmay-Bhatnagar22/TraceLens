@@ -1,9 +1,11 @@
-"""Compatibility wrapper for the moved database module."""
+"""TraceLens GUI package."""
 
 from __future__ import annotations
 
 import sys
 from importlib import import_module
 
-_module = import_module("core.database.db")
+_module = import_module(".gui", __name__)
 sys.modules[__name__] = _module
+
+

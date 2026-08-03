@@ -1,12 +1,3 @@
-"""Compatibility wrapper for the moved editor module."""
-
-from __future__ import annotations
-
-import sys
-from importlib import import_module
-
-_module = import_module("core.editor.editor")
-sys.modules[__name__] = _module
 """Metadata Editor module for parsing, validating, saving, and writing metadata.
 
 Provides functions to parse metadata text from the editor, validate changes,

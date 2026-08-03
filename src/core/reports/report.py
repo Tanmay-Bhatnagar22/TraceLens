@@ -1,12 +1,3 @@
-"""Compatibility wrapper for the moved report module."""
-
-from __future__ import annotations
-
-import sys
-from importlib import import_module
-
-_module = import_module("core.reports.report")
-sys.modules[__name__] = _module
 import pandas as pd
 import json
 import xml.etree.ElementTree as ET

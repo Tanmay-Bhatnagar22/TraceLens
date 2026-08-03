@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tracelens"
+version = "2.0.0"
+description = "TraceLens metadata analysis and privacy inspection toolkit"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "PyPDF2>=3.0.0",
+    "Pillow>=10.0.0",
+    "pandas>=2.0.0",
+    "reportlab>=4.0.0",
+    "hachoir>=3.2.0",
+    "pdf2image>=1.16.0",
+    "matplotlib>=3.7.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3.0"]
+extras = [
+    "piexif>=1.1.3",
+    "mutagen>=1.47.0",
+    "python-docx>=1.1.0",
+    "openpyxl>=3.1.0",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+py-modules = ["cli", "db", "editor", "extractor", "gui", "main", "report", "risk_analyzer"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
