@@ -18,6 +18,7 @@ from typing import Any
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+ROOT_DIR = PROJECT_ROOT
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -176,8 +177,8 @@ def generate_report_cli() -> None:
 
     base = Path(file_path)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    txt_out = ROOT_DIR / f"{base.stem}_report_{timestamp}.txt"
-    pdf_out = ROOT_DIR / f"{base.stem}_report_{timestamp}.pdf"
+    txt_out = PROJECT_ROOT / f"{base.stem}_report_{timestamp}.txt"
+    pdf_out = PROJECT_ROOT / f"{base.stem}_report_{timestamp}.pdf"
 
     if choice in {"txt", "both"}:
         txt_out.write_text(text, encoding="utf-8")
@@ -274,8 +275,8 @@ def _run_gui_main() -> None:
 
 def _project_venv_python() -> Path:
     if os.name == "nt":
-        return ROOT_DIR.parent / ".venv" / "Scripts" / "python.exe"
-    return ROOT_DIR.parent / ".venv" / "bin" / "python"
+        return PROJECT_ROOT.parent / ".venv" / "Scripts" / "python.exe"
+    return PROJECT_ROOT.parent / ".venv" / "bin" / "python"
 
 
 def launch_gui() -> None:
@@ -289,8 +290,8 @@ def launch_gui() -> None:
         if venv_python.exists() and venv_python.resolve() != Path(sys.executable).resolve():
             try:
                 subprocess.Popen(
-                    [str(venv_python), str(ROOT_DIR / "main.py")],
-                    cwd=str(ROOT_DIR.parent),
+                    [str(venv_python), str(PROJECT_ROOT / "main.py")],
+                    cwd=str(PROJECT_ROOT.parent),
                 )
                 print(color(f"Current Python is missing: {missing}", Ansi.YELLOW))
                 print(color(f"GUI launched using project venv: {venv_python}", Ansi.GREEN))
