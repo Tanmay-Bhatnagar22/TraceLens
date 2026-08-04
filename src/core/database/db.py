@@ -4,7 +4,7 @@ import pandas as pd
 import json
 import os
 import tempfile
-import report
+from src.core.reports import report
 
 
 def _default_db_path() -> str:

@@ -12,8 +12,14 @@ import os
 import json
 import tempfile
 import sys
-import db
-import report
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.core.database import db
+from src.core.reports import report
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
@@ -23,19 +29,19 @@ import threading
 
 # Try importing extractor module for metadata extraction
 try:
-    import extractor
+    from src.core.extractor import extractor
 except ImportError:  # pragma: no cover - optional dependency
     extractor = None
 
 # Try importing editor module for metadata editing and writing
 try:
-    import editor
+    from src.core.editor import editor
 except ImportError:  # pragma: no cover - optional dependency
     editor = None
 
 # Try importing risk analyzer module for privacy risk and timeline analysis
 try:
-    import risk_analyzer
+    from src.core.risk import risk_analyzer
 except ImportError:  # pragma: no cover - optional dependency
     risk_analyzer = None
 

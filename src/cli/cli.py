@@ -17,15 +17,14 @@ from pathlib import Path
 from typing import Any
 
 
-ROOT_DIR = Path(__file__).resolve().parent
-SRC_DIR = ROOT_DIR / "src"
-if str(SRC_DIR) not in sys.path:
-    sys.path.insert(0, str(SRC_DIR))
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
-import db
-import extractor
-import report
-import risk_analyzer
+from src.core.database import db
+from src.core.extractor import extractor
+from src.core.reports import report
+from src.core.risk import risk_analyzer
 
 
 class Ansi:

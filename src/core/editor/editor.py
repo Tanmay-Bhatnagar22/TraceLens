@@ -8,7 +8,7 @@ Supports PDF, images (PNG/JPEG), audio (MP3), and text files.
 import json
 import re
 from datetime import datetime
-import db
+from src.core.database import db
 import os
 import shutil
 
