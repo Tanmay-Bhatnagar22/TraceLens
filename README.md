@@ -478,10 +478,10 @@ The application follows a **layered architecture** with clear separation of conc
 - Handles startup errors and logging
 
 #### **cli.py** - Command-Line Interface Layer
-- Provides interactive, menu-driven terminal workflow
-- Exposes extraction, history, reporting, and risk analysis actions without GUI
-- Handles CLI input validation and user prompts
-- Integrates with core modules (`extractor.py`, `db.py`, `report.py`, `risk_analyzer.py`)
+- Provides the Typer/Rich CLI entrypoint and command groups
+- Exposes extraction, analysis, editing, reporting, history, export, and config actions
+- Handles validation, structured terminal output, and exit codes
+- Integrates with core modules (`extractor.py`, `db.py`, `report.py`, `editor.py`, `risk_analyzer.py`)
 - Supports automation-friendly usage in headless environments
 
 #### **gui.py** - Presentation Layer
@@ -652,24 +652,25 @@ The Tkinter interface will launch with the following tabs:
 #### CLI Mode
 
 ```bash
-# From src directory
-python cli.py
+tracelens --help
+tracelens extract file.pdf
+tracelens analyze file.pdf
+tracelens report 12
+tracelens history
 ```
 
-Navigate through the menu-driven interface:
+Common examples:
+
+```bash
+tracelens extract file.pdf
+tracelens analyze file.pdf
+tracelens report 12
+tracelens history
+tracelens export json --output history.json
+tracelens edit file.pdf --set Author="New Author"
 ```
-╔════════════════════════════════════╗
-║  TraceLens CLI Menu                ║
-╠════════════════════════════════════╣
-║ 1. Extract Metadata from File      ║
-║ 2. View History                    ║
-║ 3. Search History                  ║
-║ 4. Generate Report                 ║
-║ 5. Risk Analysis                   ║
-║ 6. Batch Processing                ║
-║ 0. Exit                            ║
-╚════════════════════════════════════╝
-```
+
+The CLI uses structured Typer commands instead of the older menu loop.
 
 ### Basic Workflow
 

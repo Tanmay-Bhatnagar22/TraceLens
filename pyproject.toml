@@ -16,6 +16,8 @@ dependencies = [
     "hachoir>=3.2.0",
     "pdf2image>=1.16.0",
     "matplotlib>=3.7.0",
+    "rich>=13.7.0",
+    "typer>=0.12.3",
 ]
 
 [project.optional-dependencies]
@@ -30,6 +32,9 @@ extras = [
 [tool.setuptools]
 package-dir = {"" = "src"}
 py-modules = ["cli", "db", "editor", "extractor", "gui", "main", "report", "risk_analyzer"]
+
+[project.scripts]
+tracelens = "cli:app"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
