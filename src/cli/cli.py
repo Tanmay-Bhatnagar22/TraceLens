@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+import click
 import typer
 from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn, TimeRemainingColumn
 
@@ -73,7 +74,7 @@ app.add_typer(config_app, name="config")
 
 def _get_state() -> CLIState:
     try:
-        ctx = typer.get_current_context()
+        ctx = click.get_current_context()
     except RuntimeError:
         return CLIState()
 
