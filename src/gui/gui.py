@@ -1,18 +1,48 @@
 """GUI module for TraceLens application.
 
-Provides Tkinter-based interface with tabs for file extraction, editing, and history management.
+Provides Tkinter-based interface with tabs for file extraction, editing, history management,
+risk analysis, and report generation.
 """
 
-from tkinter import *
-from tkinter import Menu, filedialog
-from tkinter import ttk
-from tkinter import scrolledtext
-from tkinter import messagebox
-import os
+from __future__ import annotations
+
 import json
-import tempfile
+import os
 import sys
+import tempfile
+from datetime import datetime
 from pathlib import Path
+from tkinter import (
+    BOTH,
+    BOTTOM,
+    CENTER,
+    DISABLED,
+    FLAT,
+    LEFT,
+    NORMAL,
+    RIGHT,
+    SOLID,
+    TOP,
+    Button,
+    Canvas,
+    Checkbutton,
+    DoubleVar,
+    Frame,
+    Label,
+    Listbox,
+    Menu,
+    PhotoImage,
+    StringVar,
+    Tk,
+    Toplevel,
+    W,
+    X,
+    Y,
+    filedialog,
+    messagebox,
+    scrolledtext,
+    ttk,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
@@ -20,12 +50,6 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from src.core.database import db
 from src.core.reports import report
-import matplotlib.pyplot as plt
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-from matplotlib.figure import Figure
-from datetime import datetime, timedelta
-from collections import defaultdict, Counter
-import threading
 
 # Try importing extractor module for metadata extraction
 try:
@@ -47,14 +71,21 @@ except ImportError:  # pragma: no cover - optional dependency
 
 from src.gui.statistics_dashboard import (
     StatisticsDashboard,
-    open_statistics_dashboard,
     create_metric_card,
+    open_statistics_dashboard,
+)
+from src.gui.tabs import (
+    EditorTab,
+    ExtractorTab,
+    HistoryTab,
+    PreviewTab,
+    RiskTab,
 )
 
 
 class MetadataAnalyzerApp:
     """Class-based GUI application for TraceLens.
-    
+
     Provides Tkinter interface with tabs for:
     - Extractor: Extract metadata from files
     - Editor: Edit and manage extracted metadata
@@ -97,6 +128,13 @@ class MetadataAnalyzerApp:
         self.risk_analysis = None
         self.risk_batch_summary = None
 
+        # Tab component instances
+        self.extractor_tab: ExtractorTab | None = None
+        self.editor_tab: EditorTab | None = None
+        self.history_tab: HistoryTab | None = None
+        self.risk_tab: RiskTab | None = None
+        self.preview_tab: PreviewTab | None = None
+
         # Layout info
         self.window_width = None
         self.window_height = None
@@ -108,7 +146,7 @@ class MetadataAnalyzerApp:
 
         # Hooks
         self.history_refresh = None
-        
+
         # Statistics cache
         self.stats_cache = None
         self.stats_cache_time = None
@@ -128,7 +166,7 @@ class MetadataAnalyzerApp:
 
     def run(self) -> None:
         """Launch the GUI application.
-        
+
         Initializes window, creates widgets, builds menu bar, and starts main event loop.
         """
         self._init_window()
@@ -168,9 +206,15 @@ class MetadataAnalyzerApp:
                 pass
 
     def _create_widgets(self) -> None:
-        """Build UI components: title, notebook tabs (Extractor, Editor, History), controls, and status bar."""
+        """Build UI components using dedicated tab modules."""
         # Title label
-        title_label = Label(self.root, text="TraceLens : Intelligent Metadata Analysis & Privacy Inspection Toolkit", bg="#f5f7fa", font=("Segoe UI", 22, "bold"), fg="#1a1a1a")
+        title_label = Label(
+            self.root,
+            text="TraceLens : Intelligent Metadata Analysis & Privacy Inspection Toolkit",
+            bg="#f5f7fa",
+            font=("Segoe UI", 22, "bold"),
+            fg="#1a1a1a",
+        )
         title_label.place(relx=0.5, y=25, width=self.window_width - 20, height=40, anchor="center")
 
         # Configure modern flat design theme
@@ -183,938 +227,51 @@ class MetadataAnalyzerApp:
         nb.pack(fill=BOTH, expand=True, padx=10, pady=(60, 10))
         self.nb_widget = nb
 
+        # Tab frames
         tab1 = Frame(nb, bg="#ffffff")
         tab2 = Frame(nb, bg="#ffffff")
         tab3 = Frame(nb, bg="#ffffff")
         tab5 = Frame(nb, bg="#ffffff")
         tab4 = Frame(nb, bg="#ffffff")
 
-        nb.add(tab1, text="Extractor")
-        c1 = Canvas(tab1, bg="#ffffff", highlightthickness=0, border=0)
-        c1.pack(fill=BOTH, expand=1)
-
-        # Control buttons frame
-        controls_frame = Frame(c1, bg="#f8f9fa", height=60)
-        controls_frame.pack(side=BOTTOM, fill=X, padx=0, pady=0)
-        controls_frame.pack_propagate(False)
-
-        # Configure button styling with modern colors
-        style.configure("TButton", font=("Segoe UI", 10, "bold"), padding=10)
-        style.map(
-            "TButton",
-            foreground=[("pressed", "#ffffff"), ("active", "#ffffff")],
-            background=[("pressed", "#0052a3"), ("active", "#0066cc")],
-        )
-
-        ttk.Button(controls_frame, text="Choose File", command=self.choose_file).pack(side=LEFT, padx=10, pady=10)
-        ttk.Button(controls_frame, text="Extract", command=self.extract_metadata).pack(side=LEFT, padx=10, pady=10)
-        ttk.Button(controls_frame, text="Editor", command=self.open_editor_with_current_metadata).pack(side=LEFT, padx=10, pady=10)
-        ttk.Button(controls_frame, text="Risk Analyzer", command=self.open_risk_analyzer_with_scan).pack(side=LEFT, padx=10, pady=10)
-        ttk.Button(controls_frame, text="Generate Report", command=self.generate_report).pack(side=LEFT, padx=10, pady=10)
-
-        # Progress bar for file operations
-        self.progress_var = DoubleVar()
-        self.progress_bar = ttk.Progressbar(controls_frame, variable=self.progress_var, maximum=100, mode="indeterminate", length=40)
-        self.progress_bar.pack(side=LEFT, fill=X, expand=True, padx=(12, 10), pady=10)
-
-        # Status bar for messages
-        self.status_var = StringVar()
-        self.status_var.set("Ready")
-        status_frame = Frame(c1, bg="#2c3e50", height=30)
-        status_frame.pack(side=BOTTOM, fill=X)
-        status_frame.pack_propagate(False)
-        status_bar = Label(status_frame, textvariable=self.status_var, relief=FLAT, anchor=W, font=("Segoe UI", 9), background="#2c3e50", foreground="#ecf0f1", padx=10)
-        status_bar.pack(side=LEFT, fill=X, expand=True, pady=8)
-
-        # Text widget for displaying metadata with scrollbar
-        self.c1_text = scrolledtext.ScrolledText(c1, wrap=WORD, bg="#ffffff", font=("Segoe UI", 11), fg="#333333", bd=0, relief=FLAT, highlightthickness=0, pady=15, padx=15)
-        self.c1_text.pack(fill=BOTH, expand=True, padx=0, pady=(0, 0))
-        self.c1_text.tag_configure("bold", font=("Segoe UI", 11, "bold"), foreground="#0066cc")
-        self.c1_text.tag_configure("header", font=("Segoe UI", 13, "bold"), foreground="#1a1a1a")
-        self._show_welcome_text()
-
-        # Editor tab setup
-        nb.add(tab2, text="Editor")
         self.tab2_ref = tab2
-        c2 = Frame(tab2, bg="#ffffff")
-        c2.pack(fill=BOTH, expand=1)
-
-        editor_controls = Frame(c2, bg="#f8f9fa", height=60)
-        editor_controls.pack(side=BOTTOM, fill=X)
-        editor_controls.pack_propagate(False)
-
-        ttk.Button(editor_controls, text="Save Changes", command=self.save_editor_changes).pack(side=LEFT, padx=10, pady=10)
-        ttk.Button(editor_controls, text="Cancel", command=self.cancel_editor_changes).pack(side=LEFT, padx=10, pady=10)
-        ttk.Button(editor_controls, text="Add Metadata", command=self.add_metadata_field).pack(side=LEFT, padx=10, pady=10)
-        ttk.Button(editor_controls, text="Generate Report", command=self.generate_report).pack(side=LEFT, padx=10, pady=10)
-
-        editor_status_frame = Frame(c2, bg="#2c3e50", height=30)
-        editor_status_frame.pack(side=BOTTOM, fill=X)
-        editor_status_frame.pack_propagate(False)
-        self.editor_status = Label(editor_status_frame, text="", relief=FLAT, anchor=W, font=("Segoe UI", 9), background="#2c3e50", foreground="#ffffff", padx=10)
-        self.editor_status.pack(side=LEFT, fill=X, expand=True, pady=8)
-
-        editor_fields_container = Frame(c2, bg="#ffffff")
-        editor_fields_container.pack(fill=BOTH, expand=True)
-
-        Label(editor_fields_container, text="Metadata Editor", bg="#ffffff", font=("Segoe UI", 14, "bold"), fg="#1a1a1a", anchor=W).pack(fill=X, padx=15, pady=(12, 4))
-
-        self.editor_canvas = Canvas(editor_fields_container, bg="#ffffff", highlightthickness=0, bd=0)
-        self.editor_canvas.pack(side=LEFT, fill=BOTH, expand=True)
-
-        self.editor_entry_frame = Frame(self.editor_canvas, bg="#ffffff")
-        self.editor_canvas.create_window((0, 0), window=self.editor_entry_frame, anchor=NW)
-        self.editor_entry_frame.bind("<Configure>", lambda e: self.editor_canvas.configure(scrollregion=self.editor_canvas.bbox("all")))
-
-        def _on_mousewheel(event):
-            delta_steps = 0
-            if hasattr(event, "delta") and event.delta:
-                delta_steps = int(-1 * (event.delta / 120))
-            elif getattr(event, "num", None) == 4:
-                delta_steps = -1
-            elif getattr(event, "num", None) == 5:
-                delta_steps = 1
-            if delta_steps:
-                self.editor_canvas.yview_scroll(delta_steps, "units")
-
-        self.editor_canvas.bind("<MouseWheel>", _on_mousewheel)
-        self.editor_canvas.bind("<Button-4>", _on_mousewheel)
-        self.editor_canvas.bind("<Button-5>", _on_mousewheel)
-        self.editor_entry_frame.bind("<MouseWheel>", _on_mousewheel)
-        self.editor_entry_frame.bind("<Button-4>", _on_mousewheel)
-        self.editor_entry_frame.bind("<Button-5>", _on_mousewheel)
-
-        # History tab
-        nb.add(tab3, text="History")
-
-        # Risk analyzer tab
-        nb.add(tab5, text="Risk analyzer")
         self.tab5_ref = tab5
-        self._build_risk_tab(tab5)
-
-        # Report tab: preview on the left, controls on the right
-        nb.add(tab4, text="Preview")
         self.tab4_ref = tab4
-        report_container = Frame(tab4, bg="#ffffff")
-        report_container.pack(fill=BOTH, expand=True)
 
-        preview_frame = Frame(report_container, bg="#e8e8e8")
-        preview_frame.pack(side=LEFT, fill=BOTH, expand=True)
-        preview_label = Label(preview_frame, text="Report Preview", bg="#e8e8e8", font=("Segoe UI", 12, "bold"), fg="#1a1a1a")
-        preview_label.pack(anchor=W, padx=12, pady=(12, 6))
+        # Add tabs to notebook
+        nb.add(tab1, text="Extractor")
+        nb.add(tab2, text="Editor")
+        nb.add(tab3, text="History")
+        nb.add(tab5, text="Risk analyzer")
+        nb.add(tab4, text="Preview")
 
-        self.report_preview = scrolledtext.ScrolledText(preview_frame, wrap=WORD, bg="#ffffff", font=("Segoe UI", 11), fg="#333333", bd=1, relief=SOLID, highlightthickness=0, pady=12, padx=12)
-        self.report_preview.config(state=DISABLED)
-
-        # Container for canvas and scrollbar
-        image_container = Frame(preview_frame, bg="#e8e8e8")
-        image_container.pack(fill=BOTH, expand=True, padx=12, pady=(0, 12))
-
-        # Scrollbar for preview canvas
-        self.preview_scrollbar = ttk.Scrollbar(image_container, orient="vertical")
-        
-        # Canvas for scrollable image preview
-        self.preview_canvas = Canvas(image_container, bg="#e8e8e8", highlightthickness=0, bd=0)
-        self.preview_canvas.pack(side=LEFT, fill=BOTH, expand=True)
-        
-        self.preview_scrollbar.config(command=self.preview_canvas.yview)
-        self.preview_canvas.config(yscrollcommand=self.preview_scrollbar.set)
-        
-        # Label inside canvas for image display
-        self.report_image_label = Label(
-            self.preview_canvas,
-            bg="#e8e8e8",
-            text="No report generated yet.\n\nGenerate a report from the Extractor or Editor tab to see preview.",
-            font=("Segoe UI", 11),
-            fg="#666666",
-            justify=CENTER,
-        )
-        self.canvas_window_id = self.preview_canvas.create_window(0, 0, window=self.report_image_label, anchor="n")
-        
-        # Bind canvas configure event to center image when canvas size changes
-        self.preview_canvas.bind('<Configure>', self._on_canvas_configure)
-        
-        # Bind mousewheel for scrolling
-        def _on_preview_mousewheel(event):
-            delta_steps = 0
-            if hasattr(event, "delta") and event.delta:
-                delta_steps = int(-1 * (event.delta / 120))
-            elif getattr(event, "num", None) == 4:
-                delta_steps = -1
-            elif getattr(event, "num", None) == 5:
-                delta_steps = 1
-            if delta_steps:
-                self.preview_canvas.yview_scroll(delta_steps, "units")
-
-        self.preview_canvas.bind("<MouseWheel>", _on_preview_mousewheel)
-        self.preview_canvas.bind("<Button-4>", _on_preview_mousewheel)
-        self.preview_canvas.bind("<Button-5>", _on_preview_mousewheel)
-        self.report_image_label.bind("<MouseWheel>", _on_preview_mousewheel)
-        self.report_image_label.bind("<Button-4>", _on_preview_mousewheel)
-        self.report_image_label.bind("<Button-5>", _on_preview_mousewheel)
-
-        controls_side = Frame(report_container, bg="#f8f9fa", width=220)
-        controls_side.pack(side=RIGHT, fill=Y, padx=2, pady=2)
-        controls_side.pack_propagate(False)
-        Label(controls_side, text="Actions", bg="#f8f9fa", font=("Segoe UI", 11, "bold"), fg="#1a1a1a").pack(anchor=W, padx=12, pady=(12, 6))
-        Button(controls_side, text="Save Report", command=lambda: report.save_metadata(self.report_last_text), bg="#007acc", fg="white", font=("Segoe UI", 10, "bold"), relief=FLAT, cursor="hand2", pady=8).pack(fill=X, padx=12, pady=6)
-        Button(controls_side, text="Print Report", command=lambda: report.print_metadata_report(self.report_last_text), bg="#28a745", fg="white", font=("Segoe UI", 10, "bold"), relief=FLAT, cursor="hand2", pady=8).pack(fill=X, padx=12, pady=6)
-        
-        Label(controls_side, text="Zoom", bg="#f8f9fa", font=("Segoe UI", 11, "bold"), fg="#1a1a1a").pack(anchor=W, padx=12, pady=(24, 6))
-        zoom_frame = Frame(controls_side, bg="#f8f9fa")
-        zoom_frame.pack(fill=X, padx=12, pady=6)
-        Button(zoom_frame, text="+", command=self.zoom_in_image, bg="#007acc", fg="white", font=("Segoe UI", 10, "bold"), relief=FLAT, cursor="hand2", width=3).pack(side=LEFT, padx=(0, 6))
-        Button(zoom_frame, text="−", command=self.zoom_out_image, bg="#007acc", fg="white", font=("Segoe UI", 10, "bold"), relief=FLAT, cursor="hand2", width=3).pack(side=LEFT, padx=(0, 6))
-        Button(zoom_frame, text="Reset", command=self.reset_zoom_image, bg="#6c757d", fg="white", font=("Segoe UI", 9, "bold"), relief=FLAT, cursor="hand2", width=5).pack(side=LEFT)
-        self.zoom_display_label = Label(controls_side, text="100%", bg="#f8f9fa", font=("Segoe UI", 10), fg="#333333")
-        self.zoom_display_label.pack(anchor=W, padx=12, pady=(6, 0))
-
-        # History tab widgets
-        self._build_history_tab(tab3)
+        # Initialize tab components from dedicated tab modules
+        self.extractor_tab = ExtractorTab(tab1, self)
+        self.editor_tab = EditorTab(tab2, self)
+        self.history_tab = HistoryTab(tab3, self)
+        self.risk_tab = RiskTab(tab5, self)
+        self.preview_tab = PreviewTab(tab4, self)
 
         nb.bind("<<NotebookTabChanged>>", lambda e: self._on_tab_changed(e, tab2, tab3, tab5))
 
     def _build_history_tab(self, tab3: Frame) -> None:
-        """Construct history tab with search/filter/export controls.
-        
-        Creates search bar, filters, tree view for history, and action buttons.
-        
-        Args:
-            tab3 (Frame): Tkinter Frame widget for the history tab.
-        """
-        history_container = Frame(tab3, bg="#ffffff")
-        history_container.pack(fill=BOTH, expand=True, padx=10, pady=10)
-
-        search_row1 = Frame(history_container, bg="#ffffff")
-        search_row1.pack(fill=X, pady=(0, 12))
-
-        Label(search_row1, text="Search:", bg="#ffffff", font=("Segoe UI", 10, "bold"), fg="#1a1a1a").pack(side=LEFT, padx=(0, 8))
-        search_var = StringVar()
-        search_entry = ttk.Entry(search_row1, textvariable=search_var, width=25, font=("Segoe UI", 10))
-        search_entry.pack(side=LEFT, padx=(0, 15))
-
-        Label(search_row1, text="File Type:", bg="#ffffff", font=("Segoe UI", 10, "bold"), fg="#1a1a1a").pack(side=LEFT, padx=(0, 8))
-        filter_var = StringVar()
-        filter_combo = ttk.Combobox(search_row1, textvariable=filter_var, width=16, state="readonly", font=("Segoe UI", 10))
-        filter_combo["values"] = [
-            "All",
-            "pdf",
-            "doc",
-            "docx",
-            "xlsx",
-            "xls",
-            "csv",
-            "ppt",
-            "pptx",
-            "txt",
-            "py",
-            "json",
-            "xml",
-            "md",
-            "log",
-        ]
-
-        filter_combo.set("All")
-        filter_combo.pack(side=LEFT, padx=(0, 15))
-
-        Label(search_row1, text="Date Range:", bg="#ffffff", font=("Segoe UI", 10, "bold"), fg="#1a1a1a").pack(side=LEFT, padx=(0, 8))
-        date_var = StringVar()
-        date_combo = ttk.Combobox(search_row1, textvariable=date_var, width=17, state="readonly", font=("Segoe UI", 10))
-        date_combo["values"] = ["All Time", "Today", "This Week", "This Month", "Last 30 Days"]
-        date_combo.set("All Time")
-        date_combo.pack(side=LEFT, padx=(0, 15))
-
-        Label(search_row1, text="Sort by:", bg="#ffffff", font=("Segoe UI", 10, "bold"), fg="#1a1a1a").pack(side=LEFT, padx=(0, 8))
-        sort_var = StringVar()
-        sort_combo = ttk.Combobox(search_row1, textvariable=sort_var, width=20, state="readonly", font=("Segoe UI", 10))
-        sort_combo["values"] = [
-            "Date (Newest)",
-            "Date (Oldest)",
-            "Name (A-Z)",
-            "Name (Z-A)",
-            "Size (Largest)",
-            "Size (Smallest)",
-        ]
-        
-        sort_combo.set("Date (Newest)")
-        sort_combo.pack(side=LEFT, padx=(0, 15))
-
-        tree_frame = Frame(history_container, bg="#ffffff")
-        tree_frame.pack(fill=BOTH, expand=True)
-
-        columns = ("S.No", "File Path", "File Name", "File Size", "File Type", "Extracted At", "Modified On", "Record ID")
-        tree = ttk.Treeview(tree_frame, columns=columns, show="headings")
-
-        for col in columns:
-            tree.heading(col, text=col)
-            if col == "S.No":
-                tree.column(col, stretch=NO, minwidth=50, width=60, anchor=CENTER)
-            elif col == "File Path":
-                tree.column(col, stretch=YES, minwidth=220, width=260, anchor=W)
-            elif col == "File Name":
-                tree.column(col, stretch=YES, minwidth=160, width=190, anchor=W)
-            elif col == "File Size":
-                tree.column(col, stretch=NO, minwidth=90, width=110, anchor=CENTER)
-            elif col == "File Type":
-                tree.column(col, stretch=NO, minwidth=70, width=80, anchor=CENTER)
-            elif col == "Extracted At":
-                tree.column(col, stretch=NO, minwidth=150, width=180, anchor=CENTER)
-            elif col == "Modified On":
-                tree.column(col, stretch=NO, minwidth=150, width=180, anchor=CENTER)
-            elif col == "Record ID":
-                tree.column(col, stretch=NO, minwidth=0, width=0, anchor=CENTER)
-
-        tree.pack(side=LEFT, fill=BOTH, expand=True)
-
-        v_scrollbar = ttk.Scrollbar(tree_frame, orient="vertical", command=tree.yview)
-        v_scrollbar.pack(side=RIGHT, fill=Y)
-        tree.configure(yscrollcommand=v_scrollbar.set)
-
-        h_scrollbar = ttk.Scrollbar(history_container, orient="horizontal", command=tree.xview)
-        h_scrollbar.pack(side=BOTTOM, fill=X, pady=(4, 0))
-        tree.configure(xscrollcommand=h_scrollbar.set)
-
-        button_frame = Frame(history_container, bg="#ffffff")
-        button_frame.pack(fill=X, pady=(12, 0))
-
-        for i in range(9):
-            button_frame.columnconfigure(i, weight=1, uniform="buttons")
-
-        # Create buttons
-        clear_btn = ttk.Button(button_frame, text="Clear Filters")
-        export_csv_btn = ttk.Button(button_frame, text="Export CSV")
-        export_excel_btn = ttk.Button(button_frame, text="Export Excel")
-        export_json_btn = ttk.Button(button_frame, text="Export JSON")
-        export_xml_btn = ttk.Button(button_frame, text="Export XML")
-        export_pdf_btn = ttk.Button(button_frame, text="Export PDF")
-        refresh_btn = ttk.Button(button_frame, text="Refresh")
-        delete_all_btn = ttk.Button(button_frame, text="Delete All")
-        delete_btn = ttk.Button(button_frame, text="Delete")
-
-        # Place buttons in one row
-        clear_btn.grid(row=0, column=0, padx=6, pady=6, sticky="ew")
-        export_csv_btn.grid(row=0, column=1, padx=6, pady=6, sticky="ew")
-        export_excel_btn.grid(row=0, column=2, padx=6, pady=6, sticky="ew")
-        export_json_btn.grid(row=0, column=3, padx=6, pady=6, sticky="ew")
-        export_xml_btn.grid(row=0, column=4, padx=6, pady=6, sticky="ew")
-        export_pdf_btn.grid(row=0, column=5, padx=6, pady=6, sticky="ew")
-
-        refresh_btn.grid(row=0, column=6, padx=6, pady=6, sticky="ew")
-        delete_all_btn.grid(row=0, column=7, padx=6, pady=6, sticky="ew")
-        delete_btn.grid(row=0, column=8, padx=6, pady=6, sticky="ew")
-        
-        def humanize(dt_str: str) -> str:
-            if not dt_str:
-                return ""
-            try:
-                from datetime import datetime
-
-                return datetime.fromisoformat(dt_str).strftime("%b %d, %Y %I:%M %p")
-            except Exception:
-                return dt_str
-
-        def load_data():
-            data = db.filter_and_search_data(search_var.get(), filter_var.get(), date_var.get(), sort_var.get())
-            tree.delete(*tree.get_children())
-            for idx, row in enumerate(data, start=1):
-                extracted_at = humanize(row[5])
-                modified_on = humanize(row[6])
-                tree.insert("", END, values=(idx, row[1], row[2], row[3], row[4], extracted_at, modified_on, row[0]))
-            return data
-
-        def clear_filters():
-            search_var.set("")
-            filter_var.set("All")
-            date_var.set("All Time")
-            sort_var.set("Date (Newest)")
-            search_entry.focus_set()
-            load_data()
-
-        def refresh_data():
-            load_data()
-
-        def delete_selected_record():
-            selected = tree.selection()
-            if not selected:
-                messagebox.showwarning("No Selection", "Please select a record to delete.")
-                return
-            record_values = tree.item(selected[0])["values"]
-            record_id = record_values[-1]
-            if messagebox.askyesno("Confirm Delete", f"Delete record ID: {record_id}?"):
-                if db.delete_record(record_id):
-                    messagebox.showinfo("Success", "Record deleted successfully.")
-                else:
-                    messagebox.showerror("Error", "Failed to delete record.")
-                load_data()
-
-        def delete_all_records():
-            if messagebox.askyesno("Confirm Delete", "Delete all metadata records? This cannot be undone."):
-                if db.clear_metadata():
-                    messagebox.showinfo("Success", "All records deleted.")
-                else:
-                    messagebox.showerror("Error", "Failed to delete records.")
-                load_data()
-
-        def export_handler(fmt):
-            data = load_data()
-            if not data:
-                messagebox.showwarning("No Data", "No records to export with current filters.")
-                return
-            db.export_data(fmt, data)
-            messagebox.showinfo("Export", f"Exported data as {fmt.upper()}.")
-
-        search_var.trace("w", lambda *args: load_data())
-        filter_var.trace("w", lambda *args: load_data())
-        date_var.trace("w", lambda *args: load_data())
-        sort_var.trace("w", lambda *args: load_data())
-
-        clear_btn.config(command=clear_filters)
-        refresh_btn.config(command=refresh_data)
-        delete_btn.config(command=delete_selected_record)
-        delete_all_btn.config(command=delete_all_records)
-        export_csv_btn.config(command=lambda: export_handler("csv"))
-        export_excel_btn.config(command=lambda: export_handler("excel"))
-        export_json_btn.config(command=lambda: export_handler("json"))
-        export_xml_btn.config(command=lambda: export_handler("xml"))
-        export_pdf_btn.config(command=lambda: export_handler("pdf"))
-
-        def on_tree_double_click(event):
-            selected = tree.selection()
-            if not selected:
-                return
-            values = tree.item(selected[0])["values"]
-            if not values or len(values) < 2:
-                return
-            record_id = values[-1]
-            try:
-                row = db.fetch_metadata_by_id(record_id)
-            except Exception:
-                row = None
-            if not row:
-                messagebox.showerror("Load Error", "Could not load record from database.")
-                return
-
-            self.file_path = row[1]
-            full_meta_json = row[7]
-            try:
-                self.extracted_metadata = json.loads(full_meta_json) if isinstance(full_meta_json, str) else (full_meta_json or {})
-            except Exception:
-                self.extracted_metadata = {}
-
-            if risk_analyzer and isinstance(self.extracted_metadata, dict):
-                try:
-                    self.risk_analysis = risk_analyzer.analyze_metadata(
-                        self.extracted_metadata,
-                        self.file_path,
-                        fallback_timestamps=self._get_timeline_fallbacks(
-                            extracted_at=row[5] if len(row) > 5 else None,
-                            modified_on=row[6] if len(row) > 6 else None,
-                        ),
-                    )
-                except Exception:
-                    self.risk_analysis = None
-
-            def humanize_local(dt_str: str) -> str:
-                if not dt_str:
-                    return ""
-                try:
-                    from datetime import datetime
-
-                    return datetime.fromisoformat(dt_str).strftime("%b %d, %Y %I:%M %p")
-                except Exception:
-                    return dt_str
-
-            if self.c1_text:
-                self.c1_text.config(state=NORMAL)
-                self.c1_text.delete(1.0, END)
-                self.c1_text.insert(END, "File Information\n", "header")
-                self.c1_text.insert(END, "\n")
-                self.c1_text.insert(END, f"Filename:  {row[2]}\n", "bold")
-                self.c1_text.insert(END, f"Path:  {row[1]}\n", "bold")
-                self.c1_text.insert(END, f"Type:  {row[4]}\n", "bold")
-                self.c1_text.insert(END, f"Size:  {row[3]}\n", "bold")
-                self.c1_text.insert(END, f"Extracted At:  {humanize_local(row[5])}\n", "bold")
-                self.c1_text.insert(END, f"Modified On:  {humanize_local(row[6])}\n\n", "bold")
-                if isinstance(self.extracted_metadata, dict):
-                    for k, v in self.extracted_metadata.items():
-                        self.c1_text.insert(END, f"{k}: {v}\n")
-                else:
-                    self.c1_text.insert(END, f"{self.extracted_metadata}\n")
-                self.c1_text.config(state=DISABLED)
-
-            try:
-                if self.nb_widget is not None:
-                    tabs = self.nb_widget.tabs()
-                    if tabs:
-                        self.nb_widget.select(tabs[0])
-            except Exception:
-                pass
-
-        tree.bind("<Double-1>", on_tree_double_click)
-
-        load_data()
-        self.history_refresh = load_data
+        """Construct history tab via HistoryTab component."""
+        self.history_tab = HistoryTab(tab3, self)
 
     def _build_risk_tab(self, tab5: Frame) -> None:
-        """Construct Risk analyzer tab using stacked charts on left and summary panel on right."""
-        # Main container
-        container = Frame(tab5, bg="#ffffff", relief=SOLID, bd=1)
-        container.pack(fill=BOTH, expand=True, padx=8, pady=8)
-
-        # Make 2 columns resize
-        container.columnconfigure(0, weight=3)  # Left side gets more space
-        container.columnconfigure(1, weight=1)  # Comments gets less space
-
-        # Make the main row resize vertically
-        container.rowconfigure(0, weight=1)
-
-        # ---------------- LEFT PANEL ----------------
-        left_panel = Frame(container, bg="#ffffff")
-        left_panel.grid(
-            row=0,
-            column=0,
-            sticky="nsew",
-            padx=(10, 8),
-            pady=10
-        )
-
-        # 2 chart rows
-        left_panel.columnconfigure(0, weight=1)
-
-        # Risk Meter space
-        left_panel.rowconfigure(1, weight=1)
-
-        # Timeline gets more vertical space
-        left_panel.rowconfigure(3, weight=2)
-
-        # Risk Meter label
-        Label(
-            left_panel,
-            text="Risk Meter",
-            bg="#ffffff",
-            font=("Segoe UI", 11, "bold"),
-            fg="#1a1a1a",
-            anchor=W
-        ).grid(
-            row=0,
-            column=0,
-            sticky="ew",
-            padx=2,
-            pady=(0, 4)
-        )
-
-        # Risk Meter box
-        risk_meter_frame = Frame(
-            left_panel,
-            bg="#ffffff",
-            relief=SOLID,
-            bd=1
-        )
-        risk_meter_frame.grid(
-            row=1,
-            column=0,
-            sticky="nsew"
-        )
-
-        # Timeline label
-        Label(
-            left_panel,
-            text="Forensic Timeline",
-            bg="#ffffff",
-            font=("Segoe UI", 11, "bold"),
-            fg="#1a1a1a",
-            anchor=W
-        ).grid(
-            row=2,
-            column=0,
-            sticky="ew",
-            padx=2,
-            pady=(12, 4)
-        )
-
-        # Timeline box
-        timeline_frame = Frame(
-            left_panel,
-            bg="#ffffff",
-            relief=SOLID,
-            bd=1
-        )
-        timeline_frame.grid(
-            row=3,
-            column=0,
-            sticky="nsew"
-        )
-
-        # ---------------- RIGHT PANEL ----------------
-        right_column = Frame(container, bg="#ffffff")
-        right_column.grid(
-            row=0,
-            column=1,
-            sticky="nsew",
-            padx=(8, 10),
-            pady=10
-        )
-
-        right_column.columnconfigure(0, weight=1)
-        right_column.rowconfigure(1, weight=1)
-
-        # Comments label
-        Label(
-            right_column,
-            text="Comments",
-            bg="#ffffff",
-            font=("Segoe UI", 11, "bold"),
-            fg="#1a1a1a",
-            anchor=W
-        ).grid(
-            row=0,
-            column=0,
-            sticky="ew",
-            padx=2,
-            pady=(0, 4)
-        )
-
-        # Comments box
-        comments_frame = Frame(
-            right_column,
-            bg="#ffffff",
-            relief=SOLID,
-            bd=1
-        )
-        comments_frame.grid(
-            row=1,
-            column=0,
-            sticky="nsew"
-        )
-
-        # ---------------- RISK CHART ----------------
-        self.risk_chart_canvas = FigureCanvasTkAgg(
-            Figure(figsize=(6.0, 2.4), facecolor="white"),
-            master=risk_meter_frame
-        )
-
-        self.risk_chart_canvas.get_tk_widget().pack(
-            fill=BOTH,
-            expand=True,
-            padx=8,
-            pady=8
-        )
-
-        # ---------------- TIMELINE CHART ----------------
-        self.timeline_chart_canvas = FigureCanvasTkAgg(
-            Figure(figsize=(6.0, 2.6), facecolor="white"),
-            master=timeline_frame
-        )
-
-        self.timeline_chart_canvas.get_tk_widget().pack(
-            fill=BOTH,
-            expand=True,
-            padx=8,
-            pady=8
-        )
-
-        # ---------------- COMMENTS ----------------
-        self.risk_summary_text = scrolledtext.ScrolledText(
-            comments_frame,
-            wrap=WORD,
-            bg="#f5f5f5",
-            font=("Segoe UI", 10),
-            fg="#333333",
-            bd=0,
-            relief=FLAT,
-            padx=10,
-            pady=10
-        )
-
-        self.risk_summary_text.pack(fill=BOTH, expand=True)
-        self.risk_summary_text.config(state=DISABLED)
-
-        tab5.after_idle(lambda: self._render_risk_analysis(None))
+        """Construct risk tab via RiskTab component."""
+        self.risk_tab = RiskTab(tab5, self)
 
     def _render_risk_analysis(self, analysis: dict | None) -> None:
         """Render risk gauge, reasons and timeline chart in Risk analyzer tab."""
-        if self.risk_summary_text and self.risk_summary_text.winfo_exists():
-            self.risk_summary_text.config(state=NORMAL)
-            self.risk_summary_text.delete(1.0, END)
-
-        if not analysis:
-            if self.risk_chart_canvas:
-                # Use the existing figure connected to the canvas
-                fig = self.risk_chart_canvas.figure
-
-                # Clear old chart
-                fig.clear()
-
-                # Create fresh axis
-                ax = fig.add_subplot(111)
-
-                color_map = {
-                    "LOW": "#2ecc71",
-                    "MEDIUM": "#f39c12",
-                    "HIGH": "#e74c3c"
-                }
-
-                risk_color = color_map.get(level, "#3498db")
-
-                # Full semicircle
-                full_fill = plt.matplotlib.patches.Wedge(
-                    (0, 0),
-                    1.0,
-                    0,
-                    180,
-                    width=1.0,
-                    facecolor=risk_color,
-                    edgecolor="none",
-                    alpha=0.85,
-                    zorder=2
-                )
-                ax.add_patch(full_fill)
-
-                # Semicircle border
-                outline = plt.matplotlib.patches.Wedge(
-                    (0, 0),
-                    1.0,
-                    0,
-                    180,
-                    width=0.04,
-                    facecolor="none",
-                    edgecolor="#9ca3af",
-                    zorder=3
-                )
-                ax.add_patch(outline)
-
-                # Bottom line
-                ax.plot(
-                    [1, -1],
-                    [0, 0],
-                    color="#9ca3af",
-                    linewidth=2,
-                    zorder=3
-                )
-
-                # Labels
-                ax.text(
-                    0, 0.35,
-                    f"{score}%",
-                    ha="center",
-                    va="center",
-                    fontsize=30,
-                    weight="bold",
-                    color="#1f2937"
-                )
-
-                ax.text(
-                    0, 0.10,
-                    f"Risk: {level}",
-                    ha="center",
-                    va="center",
-                    fontsize=12,
-                    color="#4b5563"
-                )
-
-                ax.set_title(
-                    "Privacy Risk Gauge",
-                    fontsize=11,
-                    weight="bold",
-                    y=0.95,
-                    pad=2
-                )
-
-                ax.set_xlim(-1.25, 1.25)
-                ax.set_ylim(-0.25, 1.25)
-                ax.axis("off")
-
-                # Adjust chart to current canvas
-                fig.tight_layout(pad=0.5)
-
-                # Redraw existing canvas
-                self.risk_chart_canvas.draw_idle()
-
-            if self.timeline_chart_canvas:
-                # Use existing figure
-                fig = self.timeline_chart_canvas.figure
-
-                # Clear old chart
-                fig.clear()
-
-                # Create new axis
-                ax = fig.add_subplot(111)
-
-                if timeline:
-                    # Your existing timeline code here
-                    ...
-                else:
-                    ax.axis("off")
-
-                    ax.text(
-                        0.5,
-                        0.5,
-                        "No timeline events discovered from metadata.",
-                        ha="center",
-                        va="center",
-                        fontsize=10
-                    )
-
-                # Fit graph to available canvas
-                fig.tight_layout(pad=0.5)
-
-                # Redraw
-                self.timeline_chart_canvas.draw_idle()
-
-            if self.risk_summary_text and self.risk_summary_text.winfo_exists():
-                self.risk_summary_text.insert(END, "Risk Level: N/A\nRisk Score: N/A\n\nRun extraction to view risk reasons and forensic timeline.")
-                self.risk_summary_text.config(state=DISABLED)
-            return
-
-        score = int(analysis.get("risk_score", 0))
-        level = analysis.get("risk_level", "LOW")
-        reasons = analysis.get("reasons", [])
-        timeline = analysis.get("timeline", [])
-        anomalies = analysis.get("anomalies", [])
-
-        if self.risk_chart_canvas:
-            fig = Figure(figsize=(6.0, 2.4), facecolor="white")
-            ax = fig.add_subplot(111)
-            color_map = {"LOW": "#2ecc71", "MEDIUM": "#f39c12", "HIGH": "#e74c3c"}
-            risk_color = color_map.get(level, "#3498db")
-            
-            # Full semicircle fill with solid color based on risk level
-            full_fill = plt.matplotlib.patches.Wedge((0, 0), 1.0, 0, 180, width=1.0, facecolor=risk_color, edgecolor="none", alpha=0.85, zorder=2)
-            ax.add_patch(full_fill)
-            
-            # Semicircle outline
-            outline = plt.matplotlib.patches.Wedge((0, 0), 1.0, 0, 180, width=0.04, facecolor="none", edgecolor="#9ca3af", zorder=3)
-            ax.add_patch(outline)
-            ax.plot([1, -1], [0, 0], color="#9ca3af", linewidth=2, zorder=3)
-
-            # Center labels - moved upward
-            ax.text(0, 0.35, f"{score}%", ha="center", va="center", fontsize=30, weight="bold", color="#1f2937")
-            ax.text(0, 0.10, f"Risk: {level}", ha="center", va="center", fontsize=12, color="#4b5563")
-
-            ax.set_title("Privacy Risk Gauge", fontsize=11, weight="bold", y=0.95, pad=2)
-            ax.set_xlim(-1.25, 1.25)
-            ax.set_ylim(-0.25, 1.25)
-            ax.axis("off")
-            self.risk_chart_canvas.figure = fig
-            self.risk_chart_canvas.draw()
-
-        if self.timeline_chart_canvas:
-            fig = Figure(figsize=(6.0, 2.6), facecolor="white")
-            ax = fig.add_subplot(111)
-            if timeline:
-                # Convert timeline to trend chart
-                from datetime import datetime
-                
-                # Parse timestamps and sort
-                events_with_dates = []
-                for event in timeline:
-                    try:
-                        ts_str = event.get("timestamp", "")
-                        # Try to parse various date formats
-                        for fmt in ["%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%b %d, %Y"]:
-                            try:
-                                dt = datetime.strptime(ts_str[:19], fmt[:19])
-                                events_with_dates.append((dt, event.get("event", "")))
-                                break
-                            except ValueError:
-                                continue
-                    except Exception:
-                        pass
-                
-                if events_with_dates:
-                    # Group events by date and collect event names
-                    from collections import defaultdict
-                    date_events = defaultdict(list)
-                    for dt, event_name in events_with_dates:
-                        date_key = dt.date()
-                        date_events[date_key].append(event_name)
-                    
-                    # Sort by date
-                    sorted_dates = sorted(date_events.keys())
-                    y_vals = [0.5] * len(sorted_dates)
-                    
-                    # Get first event name for each date
-                    event_labels = []
-                    for d in sorted_dates:
-                        events = date_events[d]
-                        # Prioritize showing specific event types
-                        label = events[0] if events else ""
-                        # Clean up the label - capitalize and shorten common terms
-                        label = label.replace("_", " ").title()
-                        if "create" in label.lower():
-                            label = "Creation"
-                        elif "modif" in label.lower():
-                            label = "Modification"
-                        elif "extract" in label.lower():
-                            label = "Extraction"
-                        event_labels.append(label)
-                    
-                    # Convert dates to strings for display
-                    full_date_labels = [d.strftime("%Y-%m-%d") for d in sorted_dates]
-                    x_vals = list(range(len(sorted_dates)))
-                    
-                    # Plot line chart with area fill
-                    ax.fill_between(x_vals, y_vals, alpha=0.4, color="#ffffffe6", zorder=1)
-                    ax.plot(x_vals, y_vals, color="#4facfe", linewidth=2.5, marker="o", markersize=8, zorder=2)
-                    
-                    # Label each node with date and event type
-                    for x, y, full_date, event_label in zip(x_vals, y_vals, full_date_labels, event_labels):
-                        # Show date on top
-                        ax.text(x, y + 0.2, full_date, ha="center", va="bottom", fontsize=8, color="#333333", weight="bold")
-                        # Show event type below the date (slightly lower)
-                        if event_label:
-                            ax.text(x, y + 0.05, event_label, ha="center", va="bottom", fontsize=7, color="#666666", style="italic")
-                    
-                    # Styling - hide x-axis labels and y-axis
-                    ax.set_xticks([])
-                    ax.set_yticks([])
-                    ax.grid(axis="y", alpha=0.15, linestyle="-")
-                    ax.spines["top"].set_visible(False)
-                    ax.spines["right"].set_visible(False)
-                    ax.spines["left"].set_visible(False)
-                else:
-                    ax.axis("off")
-                    ax.text(0.5, 0.5, "Unable to parse timeline dates.", ha="center", va="center", fontsize=10)
-            else:
-                ax.axis("off")
-                ax.text(0.5, 0.5, "No timeline events discovered from metadata.", ha="center", va="center", fontsize=10)
-            fig.tight_layout()
-            self.timeline_chart_canvas.figure = fig
-            self.timeline_chart_canvas.draw()
-
-        if self.risk_summary_text and self.risk_summary_text.winfo_exists():
-            self.risk_summary_text.insert(END, f"Risk Level: {level}\n")
-            self.risk_summary_text.insert(END, f"Risk Score: {score}/100\n")
-            self.risk_summary_text.insert(END, f"Timeline Events: {len(timeline)}\n")
-            self.risk_summary_text.insert(END, f"Anomalies: {len(anomalies)}\n\n")
-
-            self.risk_summary_text.insert(END, "Why this risk:\n")
-            for reason in reasons:
-                self.risk_summary_text.insert(END, f"• {reason}\n")
-
-            if self.risk_batch_summary:
-                counts = self.risk_batch_summary.get("risk_counts", {})
-                self.risk_summary_text.insert(END, "\nBatch Summary:\n")
-                self.risk_summary_text.insert(END, f"• LOW: {counts.get('LOW', 0)}\n")
-                self.risk_summary_text.insert(END, f"• MEDIUM: {counts.get('MEDIUM', 0)}\n")
-                self.risk_summary_text.insert(END, f"• HIGH: {counts.get('HIGH', 0)}\n")
-
-            self.risk_summary_text.config(state=DISABLED)
+        if self.risk_tab:
+            self.risk_tab.render_risk_analysis(analysis)
 
     # ------------------------------------------------------------------
     # Tab and editor helpers
     # ------------------------------------------------------------------
     def _on_tab_changed(self, event, tab2: Frame, tab3: Frame, tab5: Frame) -> None:
-        """Handle notebook tab changes for refresh logic.
-        
-        Updates history data when history tab is activated.
-        
-        Args:
-            event: Tkinter event object from tab changed event.
-            tab2 (Frame): Editor tab frame.
-            tab3 (Frame): History tab frame.
-            tab5 (Frame): Risk analyzer tab frame.
-        """
+        """Handle notebook tab changes for refresh logic."""
         try:
             current = self.nb_widget.select()
             if current == str(tab3):
@@ -1131,71 +288,42 @@ class MetadataAnalyzerApp:
             pass
 
     def _populate_editor_fields(self, metadata: dict) -> None:
-        """Populate editor UI with metadata key-value entry fields.
-        
-        Creates scrollable frame with Entry widgets for editing metadata.
-        
-        Args:
-            metadata (dict): Dictionary of metadata to populate fields.
-        """
-        self._clear_editor_fields()
-        if not metadata or not isinstance(metadata, dict):
-            return
-        for key, value in metadata.items():
-            field_frame = Frame(self.editor_entry_frame, bg="#ffffff")
-            field_frame.pack(fill=X, padx=15, pady=8)
-
-            label = Label(field_frame, text=f"{key}:", bg="#ffffff", font=("Segoe UI", 10, "bold"), fg="#1a1a1a", width=20, anchor=W)
-            label.pack(side=LEFT, padx=(0, 10))
-
-            entry = ttk.Entry(field_frame, font=("Segoe UI", 10), width=50)
-            entry.pack(side=LEFT, fill=X, expand=True)
-            entry.insert(0, str(value))
-            if not self._is_editable_field(key):
-                entry.state(["disabled"])
-
-            self.editor_entry_fields[key] = entry
+        """Populate editor UI with metadata key-value entry fields."""
+        if self.editor_tab:
+            self.editor_tab.populate_editor_fields(metadata)
+        else:
+            self._clear_editor_fields()
 
     def _clear_editor_fields(self) -> None:
         """Clear all metadata entry fields from the editor."""
-        for widget in self.editor_entry_frame.winfo_children():
-            widget.destroy()
+        if self.editor_entry_frame:
+            for widget in self.editor_entry_frame.winfo_children():
+                widget.destroy()
         self.editor_entry_fields.clear()
 
     def _is_editable_field(self, field_name: str) -> bool:
-        """Check if a field is user-editable.
-        
-        Args:
-            field_name (str): Name of the field to check.
-            
-        Returns:
-            bool: True if field is editable, False if it's read-only.
-        """
+        """Check if a field is user-editable."""
         return field_name not in self.NON_EDITABLE_FIELDS
 
     def _show_welcome_text(self) -> None:
         """Display welcome message in the metadata text widget."""
-        if not self.c1_text:
-            return
-        self.c1_text.config(state=NORMAL)
-        self.c1_text.delete(1.0, END)
-        self.c1_text.insert(END, "Welcome to TraceLens: Intelligent Metadata Analysis & Privacy Inspection Toolkit\n", "header")
-        self.c1_text.insert(END, "\nThis tool allows you to extract & edit metadata from various file types including images, documents, and audio files.\n\n")
-        self.c1_text.insert(END, "Getting Started:\n", "bold")
-        self.c1_text.insert(END, "1. Click 'Choose File' to select a file\n2. Click 'Extract' to analyze its metadata\n3. Use 'Generate report' to export the results\n\n")
-        self.c1_text.insert(END, "For more information, refer to the Help section in the menu bar.", "bold")
-        self.c1_text.config(state=DISABLED)
+        if self.extractor_tab:
+            self.extractor_tab.show_welcome_text()
 
     def _get_timeline_fallbacks(self, extracted_at: str | None = None, modified_on: str | None = None) -> dict:
         """Build fallback timestamps when metadata has no timeline fields."""
         fallback = {}
         if self.file_path and os.path.exists(self.file_path):
             try:
-                fallback["Created Date"] = datetime.fromtimestamp(os.path.getctime(self.file_path)).isoformat(sep=" ", timespec="seconds")
+                fallback["Created Date"] = datetime.fromtimestamp(os.path.getctime(self.file_path)).isoformat(
+                    sep=" ", timespec="seconds"
+                )
             except Exception:
                 pass
             try:
-                fallback["Modified Date"] = datetime.fromtimestamp(os.path.getmtime(self.file_path)).isoformat(sep=" ", timespec="seconds")
+                fallback["Modified Date"] = datetime.fromtimestamp(os.path.getmtime(self.file_path)).isoformat(
+                    sep=" ", timespec="seconds"
+                )
             except Exception:
                 pass
 
@@ -1209,758 +337,106 @@ class MetadataAnalyzerApp:
     # Status helpers
     # ------------------------------------------------------------------
     def set_status(self, message: str) -> None:
-        """Update the status bar with a message.
-        
-        Args:
-            message (str): Status message to display.
-        """
+        """Update the status bar with a message."""
         if self.status_var:
             self.status_var.set(message)
 
     def _display_extracted_metadata(self, metadata, file_path: str, db_row) -> None:
-        """Display extracted metadata in the text widget.
-        
-        Formats and displays metadata with file information and timestamps.
-        
-        Args:
-            metadata (dict): Dictionary of extracted metadata.
-            file_path (str): Path to the analyzed file.
-            db_row (tuple): Database row containing extraction timestamps.
-        """
-        if not self.c1_text:
-            return
-
-        self.c1_text.config(state=NORMAL)
-        self.c1_text.delete(1.0, END)
-        self.c1_text.insert(END, "Extracted Metadata\n", "header")
-        self.c1_text.insert(END, f"File: {os.path.basename(file_path)}\n\n", "bold")
-
-        if isinstance(metadata, dict):
-            if "Error" in metadata:
-                self.c1_text.insert(END, f"Error: {metadata['Error']}\n", "bold")
-            else:
-                for key, value in metadata.items():
-                    self.c1_text.insert(END, f"{key}: ", "bold")
-                    self.c1_text.insert(END, f"{value}\n")
-        else:
-            self.c1_text.insert(END, str(metadata))
-
-        if db_row:
-            def _fmt(dt_str):
-                if not dt_str:
-                    return ""
-                try:
-                    from datetime import datetime
-
-                    return datetime.fromisoformat(dt_str).strftime("%b %d, %Y %I:%M %p")
-                except Exception:
-                    return dt_str
-
-            extracted_at_disp = _fmt(db_row[5]) if len(db_row) > 5 else ""
-            modified_on_disp = _fmt(db_row[6]) if len(db_row) > 6 else ""
-
-            self.c1_text.insert(END, "\n")
-            self.c1_text.insert(END, "Extracted At: ", "bold")
-            self.c1_text.insert(END, f"{extracted_at_disp}\n")
-            self.c1_text.insert(END, "Modified On: ", "bold")
-            self.c1_text.insert(END, f"{modified_on_disp}\n")
-
-        self.c1_text.config(state=DISABLED)
+        """Display extracted metadata in the text widget."""
+        if self.extractor_tab:
+            self.extractor_tab.display_extracted_metadata(metadata, file_path, db_row)
 
     # ------------------------------------------------------------------
     # Core actions
     # ------------------------------------------------------------------
     def extract_metadata(self) -> None:
-        """Extract metadata from the selected file and display results.
-        
-        Calls the extractor module to analyze the file and store metadata in the database.
-        Updates the display with extracted information.
-        """
-        if not self.file_path:
-            messagebox.showwarning("No File Selected", "Please choose a file first.")
-            return
-
-        if not extractor:
-            messagebox.showerror("Error", "Extractor module not available.")
-            return
-
-        try:
-            if self.progress_bar:
-                self.progress_bar.start()
-
-            self.set_status("Extracting metadata...")
-            self.root.update()
-
-            self.extracted_metadata, db_row = extractor.extract_and_store(self.file_path)
-
-            if risk_analyzer and isinstance(self.extracted_metadata, dict) and "Error" not in self.extracted_metadata:
-                try:
-                    self.risk_analysis = risk_analyzer.analyze_metadata(
-                        self.extracted_metadata,
-                        self.file_path,
-                        fallback_timestamps=self._get_timeline_fallbacks(extracted_at=datetime.now().isoformat(sep=" ", timespec="seconds")),
-                    )
-                except Exception:
-                    self.risk_analysis = None
-            else:
-                self.risk_analysis = None
-
-            if self.progress_bar:
-                self.progress_bar.stop()
-
-            self._display_extracted_metadata(self.extracted_metadata, self.file_path, db_row)
-            self._render_risk_analysis(self.risk_analysis)
-
-            if isinstance(self.extracted_metadata, dict) and "Error" not in self.extracted_metadata:
-                self.set_status(f"Successfully extracted {len(self.extracted_metadata)} metadata fields")
-            else:
-                self.set_status("Extraction completed")
-
-            try:
-                if callable(self.history_refresh):
-                    self.history_refresh()
-            except Exception:
-                pass
-
-        except Exception as e:
-            if self.progress_bar:
-                self.progress_bar.stop()
-            self.set_status(f"Extraction error: {str(e)}")
-            messagebox.showerror("Extraction Error", f"Failed to extract metadata: {str(e)}")
+        """Extract metadata from the selected file and display results."""
+        if self.extractor_tab:
+            self.extractor_tab.extract_metadata()
 
     def generate_report(self) -> None:
-        """Generate a metadata report and display in preview tab.
-        
-        Creates formatted report text from extracted metadata and updates the preview panel.
-        """
-        if not self.extracted_metadata or not self.file_path:
-            messagebox.showwarning("No Data", "Please extract metadata first before generating a report.")
-            return
-        try:
-            if risk_analyzer and isinstance(self.extracted_metadata, dict):
-                self.risk_analysis = risk_analyzer.analyze_metadata(
-                    self.extracted_metadata,
-                    self.file_path,
-                    fallback_timestamps=self._get_timeline_fallbacks(extracted_at=datetime.now().isoformat(sep=" ", timespec="seconds")),
-                )
-            metadata_text = report.generate_report_text(
-                self.extracted_metadata,
-                self.file_path,
-                risk_analysis=self.risk_analysis,
-                batch_summary=self.risk_batch_summary,
-            )
-            self.update_report_preview(metadata_text)
-            self.set_status("Report preview ready")
-        except Exception as e:
-            self.set_status(f"Report generation error: {str(e)}")
-            messagebox.showerror("Report Error", f"Failed to generate report: {str(e)}")
+        """Generate a metadata report and display in preview tab."""
+        if self.preview_tab:
+            self.preview_tab.generate_report()
 
     def open_editor_with_current_metadata(self) -> None:
-        """Open editor tab with current metadata loaded for editing.
-        
-        Populates editor fields with current metadata and switches to the editor tab.
-        """
-        if not self.extracted_metadata or not self.file_path:
-            messagebox.showwarning("No Data", "Please extract metadata first.")
-            try:
-                if self.nb_widget is not None:
-                    tabs = self.nb_widget.tabs()
-                    if tabs:
-                        self.nb_widget.select(tabs[0])
-            except Exception:
-                pass
-            return
-
-        if self.extracted_metadata and isinstance(self.extracted_metadata, dict):
-            self._populate_editor_fields(self.extracted_metadata)
-            self.editor_status.config(text="", fg="#555555")
-
-        if self.nb_widget is not None and self.tab2_ref is not None:
-            self.nb_widget.select(self.tab2_ref)
+        """Open editor tab with current metadata loaded for editing."""
+        if self.editor_tab:
+            self.editor_tab.open_editor_with_current_metadata()
 
     def open_risk_analyzer_with_scan(self) -> None:
         """Open Risk analyzer tab and scan current file metadata for privacy/forensic risk."""
-        if not self.file_path:
-            messagebox.showwarning("No File Selected", "Please choose a file first.")
-            return
-
-        if not risk_analyzer:
-            messagebox.showerror("Error", "Risk analyzer module not available.")
-            return
-
-        if not self.extracted_metadata or not isinstance(self.extracted_metadata, dict) or "Error" in self.extracted_metadata:
-            if not extractor:
-                messagebox.showerror("Error", "Extractor module not available.")
-                return
-            try:
-                self.set_status("Extracting metadata for risk scan...")
-                if self.progress_bar:
-                    self.progress_bar.start()
-                self.extracted_metadata, db_row = extractor.extract_and_store(self.file_path)
-                if self.progress_bar:
-                    self.progress_bar.stop()
-                self._display_extracted_metadata(self.extracted_metadata, self.file_path, db_row)
-                if callable(self.history_refresh):
-                    self.history_refresh()
-            except Exception as exc:
-                if self.progress_bar:
-                    self.progress_bar.stop()
-                messagebox.showerror("Risk Scan Error", f"Failed to extract metadata before risk scan: {exc}")
-                return
-
-        try:
-            self.risk_analysis = risk_analyzer.analyze_metadata(
-                self.extracted_metadata,
-                self.file_path,
-                fallback_timestamps=self._get_timeline_fallbacks(extracted_at=datetime.now().isoformat(sep=" ", timespec="seconds")),
-            )
-            self._render_risk_analysis(self.risk_analysis)
-
-            if self.nb_widget is not None and self.tab5_ref is not None:
-                self.nb_widget.select(self.tab5_ref)
-
-            level = self.risk_analysis.get("risk_level", "N/A") if isinstance(self.risk_analysis, dict) else "N/A"
-            self.set_status(f"Risk scan complete: {level}")
-        except Exception as exc:
-            messagebox.showerror("Risk Scan Error", f"Failed to analyze risk: {exc}")
+        if self.risk_tab:
+            self.risk_tab.open_risk_analyzer_with_scan()
 
     def choose_file(self) -> None:
-        """Open file dialog for user to select a file to analyze.
-        
-        Sets self.file_path and updates status bar with selected file.
-        """
-        filetypes = (
-            ("All Files", "*.*"),
-            ("Images", "*.jpg *.jpeg *.png *.gif *.bmp"),
-            ("Documents", "*.pdf *.docx *.txt *.xlsx"),
-            ("Audio", "*.mp3 *.wav *.flac"),
-            (
-                "Code Files",
-                "*.py *.js *.java *.cpp *.c *.html *.css *.php *.rb *.go *.rs *.ts *.jsx *.tsx *.xml *.json *.yaml *.yml",
-            ),
-        )
-        selected_file = filedialog.askopenfilename(filetypes=filetypes)
-        if selected_file:
-            self.file_path = selected_file
-            self.extracted_metadata = {}
-            self.risk_analysis = None
-            if self.progress_bar:
-                self.progress_bar.start()
-                self.root.after(2000, lambda: self.progress_bar.stop())
-            self.set_status(f"File selected: {os.path.basename(selected_file)}")
-            if self.c1_text:
-                self.c1_text.config(state=NORMAL)
-                self.c1_text.delete(1.0, END)
-                self.c1_text.insert(END, "File Information\n", "header")
-                self.c1_text.insert(END, "\n")
-                self.c1_text.insert(END, f"Filename:  {os.path.basename(selected_file)}\n", "bold")
-                self.c1_text.insert(END, f"Path:  {selected_file}\n", "bold")
-                self.c1_text.insert(END, "\nStatus:  Ready for extraction\n\n", "bold")
-                self.c1_text.insert(END, "Click 'Extract' to analyze the file metadata.", "bold")
-                self.c1_text.config(state=DISABLED)
+        """Open file dialog for user to select a file to analyze."""
+        if self.extractor_tab:
+            self.extractor_tab.choose_file()
 
     def update_report_preview(self, text: str) -> None:
-        """Update the report preview panel with formatted text.
-        
-        Displays report text in the preview tab.
-        
-        Args:
-            text (str): Report text to display in preview.
-        """
-        self.report_last_text = text or ""
-
-        def _show_text_preview():
-            try:
-                # Hide image preview scrollbar
-                if self.preview_scrollbar and self.preview_scrollbar.winfo_exists():
-                    self.preview_scrollbar.pack_forget()
-            except Exception:
-                pass
-
-            try:
-                if self.report_preview and self.report_preview.winfo_exists():
-                    self.report_preview.pack(fill=BOTH, expand=True)
-                    self.report_preview.config(state=NORMAL)
-                    self.report_preview.delete(1.0, END)
-                    self.report_preview.insert(END, self.report_last_text)
-                    self.report_preview.config(state=DISABLED)
-            except Exception as e:  # pragma: no cover - UI fallback
-                print(f"Error showing text preview: {e}")
-
-        def _show_image_preview(pil_img):
-            try:
-                try:
-                    from PIL import ImageTk, Image
-                except ImportError:
-                    _show_text_preview()
-                    return
-
-                # Store original image for zoom operations
-                self.preview_base_image = pil_img
-                self.preview_image_zoom = 1.0  # Reset zoom when new image is loaded
-                
-                max_width = self.window_width - 280 if self.window_width else 900
-
-                img_width, img_height = pil_img.size
-                width_ratio = max_width / img_width
-                # Fit preview to width, keep full height scrollable for multi-page reports.
-                scale_ratio = min(width_ratio, 1.0)
-
-                if scale_ratio < 1.0:
-                    new_width = int(img_width * scale_ratio)
-                    new_height = int(img_height * scale_ratio)
-                    pil_img = pil_img.resize((new_width, new_height), Image.Resampling.LANCZOS)
-                    img_width, img_height = new_width, new_height
-
-                self.report_preview_tk_img = ImageTk.PhotoImage(pil_img)
-
-                # Hide text preview
-                if self.report_preview and self.report_preview.winfo_exists():
-                    self.report_preview.pack_forget()
-
-                # Show image preview in canvas
-                if self.report_image_label and self.report_image_label.winfo_exists():
-                    self.report_image_label.config(image=self.report_preview_tk_img, bg="#e8e8e8")
-                
-                # Update canvas scroll region
-                if self.preview_canvas and self.preview_canvas.winfo_exists():
-                    self.preview_canvas.update_idletasks()
-                    canvas_width = self.preview_canvas.winfo_width()
-                    canvas_height = self.preview_canvas.winfo_height()
-                    
-                    # Keep image anchored to top-center for natural vertical scrolling.
-                    self.preview_canvas.coords(self.canvas_window_id, canvas_width // 2, 10)
-                    self.preview_canvas.config(scrollregion=self.preview_canvas.bbox("all"))
-                    if img_height > canvas_height and self.preview_scrollbar and self.preview_scrollbar.winfo_exists():
-                        self.preview_scrollbar.pack(side=RIGHT, fill=Y)
-                    else:
-                        self.preview_scrollbar.pack_forget()
-                
-                # Update zoom display
-                if hasattr(self, 'zoom_display_label') and self.zoom_display_label:
-                    self.zoom_display_label.config(text="100%")
-                        
-            except Exception as e:  # pragma: no cover - UI fallback
-                print(f"Error showing image preview: {e}")
-                _show_text_preview()
-
-        def _try_render_image_from_pdf(pdf_path: str) -> bool:
-            try:
-                try:
-                    from pdf2image import convert_from_path
-                    from PIL import Image, ImageDraw
-                except ImportError:
-                    print("pdf2image not available")
-                    return False
-
-                poppler_path = r"C:\\poppler\\Library\\bin"
-                convert_kwargs = {"dpi": 150}
-                if os.path.isdir(poppler_path):
-                    convert_kwargs["poppler_path"] = poppler_path
-
-                images = convert_from_path(pdf_path, **convert_kwargs)
-
-                if images:
-                    if len(images) == 1:
-                        _show_image_preview(images[0])
-                        return True
-
-                    # Stitch all PDF pages into one tall image so users can scroll through full report.
-                    page_images = [img.convert("RGB") for img in images]
-                    page_spacing = 24
-                    max_width = max(img.width for img in page_images)
-                    total_height = sum(img.height for img in page_images) + page_spacing * (len(page_images) - 1)
-                    merged = Image.new("RGB", (max_width, total_height), "white")
-                    draw = ImageDraw.Draw(merged)
-
-                    y_offset = 0
-                    for page_index, page_img in enumerate(page_images, start=1):
-                        x_offset = (max_width - page_img.width) // 2
-                        merged.paste(page_img, (x_offset, y_offset))
-
-                        next_y_offset = y_offset + page_img.height
-                        if page_index < len(page_images):
-                            # Draw a separator in the spacing area between pages for visual clarity.
-                            sep_y = next_y_offset + (page_spacing // 2)
-                            draw.line((20, sep_y, max_width - 20, sep_y), fill=(180, 180, 180), width=2)
-                            draw.text((24, sep_y - 14), f"Page {page_index + 1}", fill=(120, 120, 120))
-
-                        y_offset = next_y_offset + page_spacing
-
-                    _show_image_preview(merged)
-                    return True
-                return False
-            except Exception as e:  # pragma: no cover - UI fallback
-                print(f"Error rendering PDF to image: {e}")
-                return False
-
-        def _render_image_preview() -> bool:
-            try:
-                temp_dir = tempfile.gettempdir()
-                temp_pdf = os.path.join(temp_dir, f"metadata_report_preview_{os.getpid()}.pdf")
-                report.create_pdf_report_from_text(self.report_last_text, temp_pdf)
-                return _try_render_image_from_pdf(temp_pdf)
-            except Exception as e:  # pragma: no cover - UI fallback
-                print(f"Error creating preview PDF: {e}")
-                return False
-
-        if not _render_image_preview():
-            _show_text_preview()
-
-        try:
-            if self.nb_widget is not None and self.tab4_ref is not None:
-                self.nb_widget.select(self.tab4_ref)
-        except Exception:
-            pass
+        """Update the report preview panel with formatted text."""
+        if self.preview_tab:
+            self.preview_tab.update_report_preview(text)
 
     def save_report_from_preview(self) -> None:
-        """Save the current report preview to a PDF file.
-        
-        Launches file dialog for user to choose save location.
-        """
-        try:
-            if not self.report_last_text.strip():
-                messagebox.showwarning("No Data", "There is no report content to save.")
-                return
-            report.save_metadata(self.report_last_text)
-        except Exception as e:
-            messagebox.showerror("Save Error", f"Failed to save report: {str(e)}")
+        """Save the current report preview to a PDF file."""
+        if self.preview_tab:
+            self.preview_tab.save_report_from_preview()
 
     def print_report_from_preview(self) -> None:
-        """Send the current report preview to the default printer.
-        
-        Windows only - sends PDF to default printer via os.startfile.
-        """
-        try:
-            if not self.report_last_text.strip():
-                messagebox.showwarning("No Data", "There is no report content to print.")
-                return
-            report.print_metadata_report(self.report_last_text)
-        except Exception as e:
-            messagebox.showerror("Print Error", f"Failed to print report: {str(e)}")
+        """Send the current report preview to the default printer."""
+        if self.preview_tab:
+            self.preview_tab.print_report_from_preview()
 
     # ------------------------------------------------------------------
     # Canvas centering helper
     # ------------------------------------------------------------------
     def _on_canvas_configure(self, event=None) -> None:
         """Center the image in canvas when canvas is configured/resized."""
-        try:
-            if self.preview_canvas and self.preview_canvas.winfo_exists():
-                canvas_width = self.preview_canvas.winfo_width()
-                canvas_height = self.preview_canvas.winfo_height()
-                
-                # Only center if canvas has valid dimensions
-                if canvas_width > 1 and canvas_height > 1:
-                    self.preview_canvas.coords(self.canvas_window_id, canvas_width // 2, 10)
-                    self.preview_canvas.config(scrollregion=self.preview_canvas.bbox("all"))
-                    if self.report_image_label and self.report_image_label.winfo_exists():
-                        label_height = self.report_image_label.winfo_height()
-                        if label_height > canvas_height and self.preview_scrollbar and self.preview_scrollbar.winfo_exists():
-                            self.preview_scrollbar.pack(side=RIGHT, fill=Y)
-                        elif self.preview_scrollbar and self.preview_scrollbar.winfo_exists():
-                            self.preview_scrollbar.pack_forget()
-        except Exception:
-            pass
+        if self.preview_tab:
+            self.preview_tab.on_canvas_configure(event)
 
     # ------------------------------------------------------------------
     # Image zoom controls
     # ------------------------------------------------------------------
     def zoom_in_image(self) -> None:
         """Zoom in on the preview image by 20%."""
-        if self.preview_base_image is None:
-            return
-        
-        self.preview_image_zoom = min(self.preview_image_zoom + 0.2, 2.0)  # Max 200%
-        self._apply_image_zoom()
-    
+        if self.preview_tab:
+            self.preview_tab.zoom_in_image()
+
     def zoom_out_image(self) -> None:
         """Zoom out on the preview image by 20%."""
-        if self.preview_base_image is None:
-            return
-        
-        self.preview_image_zoom = max(self.preview_image_zoom - 0.2, 0.4)  # Min 40%
-        self._apply_image_zoom()
-    
+        if self.preview_tab:
+            self.preview_tab.zoom_out_image()
+
     def reset_zoom_image(self) -> None:
         """Reset image zoom to 100%."""
-        if self.preview_base_image is None:
-            return
-        
-        self.preview_image_zoom = 1.0
-        self._apply_image_zoom()
-    
+        if self.preview_tab:
+            self.preview_tab.reset_zoom_image()
+
     def _apply_image_zoom(self) -> None:
         """Apply the current zoom level to the preview image."""
-        try:
-            from PIL import ImageTk, Image
-            
-            if self.preview_base_image is None:
-                return
-            
-            # Calculate dimensions with zoom
-            max_width = self.window_width - 280 if self.window_width else 900
-            
-            img_width, img_height = self.preview_base_image.size
-            width_ratio = max_width / img_width
-            base_scale_ratio = min(width_ratio, 1.0)
-            
-            # Apply base scale and zoom
-            final_scale = base_scale_ratio * self.preview_image_zoom
-            new_width = int(img_width * final_scale)
-            new_height = int(img_height * final_scale)
-            
-            # Resize image
-            resized_img = self.preview_base_image.resize((new_width, new_height), Image.Resampling.LANCZOS)
-            self.report_preview_tk_img = ImageTk.PhotoImage(resized_img)
-            
-            # Update label
-            if self.report_image_label and self.report_image_label.winfo_exists():
-                self.report_image_label.config(image=self.report_preview_tk_img)
-            
-            # Update canvas scroll region and center the image
-            if self.preview_canvas and self.preview_canvas.winfo_exists():
-                self.preview_canvas.update_idletasks()
-                canvas_width = self.preview_canvas.winfo_width()
-                canvas_height = self.preview_canvas.winfo_height()
-                
-                # Keep image anchored to top-center so full document can be scrolled.
-                x_center = canvas_width // 2
-                y_center = 10
-                self.preview_canvas.coords(self.canvas_window_id, x_center, y_center)
-                
-                # Set scroll region to accommodate larger zoomed images
-                scroll_width = max(canvas_width, new_width)
-                scroll_height = max(canvas_height, new_height)
-                self.preview_canvas.config(scrollregion=(0, 0, scroll_width, scroll_height))
-                
-                if new_height > canvas_height and self.preview_scrollbar and self.preview_scrollbar.winfo_exists():
-                    self.preview_scrollbar.pack(side=RIGHT, fill=Y)
-                elif self.preview_scrollbar and self.preview_scrollbar.winfo_exists():
-                    self.preview_scrollbar.pack_forget()
-            
-            # Update zoom display
-            if hasattr(self, 'zoom_display_label') and self.zoom_display_label:
-                self.zoom_display_label.config(text=f"{int(self.preview_image_zoom * 100)}%")
-            
-            self.set_status(f"Image zoom: {int(self.preview_image_zoom * 100)}%")
-            
-        except Exception as e:
-            print(f"Error applying image zoom: {e}")
+        if self.preview_tab:
+            self.preview_tab.apply_image_zoom()
 
     # ------------------------------------------------------------------
     # Editor actions
     # ------------------------------------------------------------------
     def save_editor_changes(self) -> None:
-        """Save edited metadata from editor fields to database and file.
-        
-        Validates edited metadata, writes to database, and optionally to the source file.
-        """
-        if not self.file_path or not self.extracted_metadata:
-            messagebox.showwarning("No Data", "No metadata loaded to save.")
-            return
-
-        try:
-            edited_metadata = {}
-            headers = {}
-            
-            for field_name, entry_widget in self.editor_entry_fields.items():
-                value = entry_widget.get().strip()
-                if value:
-                    # Separate headers from regular metadata
-                    if field_name in self.NON_EDITABLE_FIELDS:
-                        headers[field_name] = value
-                    else:
-                        edited_metadata[field_name] = value
-
-            # Ensure headers are populated from file info if not already present
-            if not headers.get("File Name") and self.file_path:
-                headers["File Name"] = os.path.basename(self.file_path)
-            if not headers.get("File Size") and self.file_path:
-                try:
-                    headers["File Size"] = str(os.path.getsize(self.file_path))
-                except Exception:
-                    pass
-            if not headers.get("File Type") and self.file_path:
-                headers["File Type"] = os.path.splitext(self.file_path)[1].lstrip('.')
-
-            if not edited_metadata:
-                messagebox.showwarning("Empty Metadata", "Please enter at least one metadata field.")
-                return
-
-            valid, error_msg = editor.validate_metadata({"metadata": edited_metadata, "headers": headers})
-            if not valid:
-                self.editor_status.config(text=error_msg, fg="#dc3545")
-                messagebox.showerror("Validation Error", error_msg)
-                return
-
-            db_success, db_message = db.save_edited_metadata(self.file_path, {"metadata": edited_metadata, "headers": headers})
-            if not db_success:
-                self.editor_status.config(text=db_message, fg="#dc3545")
-                messagebox.showerror("Database Error", db_message)
-                return
-
-            file_success, file_message = editor.write_metadata_to_file(self.file_path, edited_metadata)
-
-            self.extracted_metadata = edited_metadata
-            if risk_analyzer:
-                try:
-                    self.risk_analysis = risk_analyzer.analyze_metadata(
-                        self.extracted_metadata,
-                        self.file_path,
-                        fallback_timestamps=self._get_timeline_fallbacks(extracted_at=datetime.now().isoformat(sep=" ", timespec="seconds")),
-                    )
-                except Exception:
-                    self.risk_analysis = None
-            self._render_risk_analysis(self.risk_analysis)
-
-            if file_success:
-                self.editor_status.config(text="Saved to database and file", fg="#28a745")
-                messagebox.showinfo("Success", "✓ Database updated\n✓ File metadata updated")
-            else:
-                self.editor_status.config(text="Saved to database only", fg="#ff8c00")
-                messagebox.showwarning("Partial Success", f"✓ Database updated\n⚠ File: {file_message}")
-
-            try:
-                if callable(self.history_refresh):
-                    self.history_refresh()
-            except Exception:
-                pass
-
-        except Exception as e:
-            error_msg = f"Failed to save: {str(e)}"
-            self.editor_status.config(text=error_msg, fg="#dc3545")
-            messagebox.showerror("Error", error_msg)
+        """Save edited metadata from editor fields to database and file."""
+        if self.editor_tab:
+            self.editor_tab.save_editor_changes()
 
     def cancel_editor_changes(self) -> None:
-        """Discard editor changes and reload original extracted metadata.
-        
-        Clears editor fields and resets status without saving changes.
-        """
-        if not self.file_path or not self.extracted_metadata:
-            self._clear_editor_fields()
-            self.editor_status.config(text="", fg="#555555")
-            return
-
-        if messagebox.askyesno("Cancel Changes", "Discard all changes and reload original metadata?"):
-            try:
-                self._populate_editor_fields(self.extracted_metadata)
-                self.editor_status.config(text="Changes discarded", fg="#555555")
-            except Exception as e:
-                messagebox.showerror("Error", f"Failed to reload: {str(e)}")
+        """Discard editor changes and reload original extracted metadata."""
+        if self.editor_tab:
+            self.editor_tab.cancel_editor_changes()
 
     def add_metadata_field(self) -> None:
-        """Open dialog to add custom metadata field to the editor.
-        
-        Allows user to input a key-value pair for new metadata (e.g., GPS location for images).
-        Adds the new field to the editor entry fields and updates the display.
-        """
-        if not self.file_path or not self.extracted_metadata:
-            messagebox.showwarning("No Data", "Please extract metadata first before adding custom fields.")
-            return
-
-        # Create dialog window
-        dialog = Toplevel(self.root)
-        dialog.title("Add Metadata Field")
-        dialog.geometry("550x320")
-        dialog.resizable(False, False)
-        dialog.grab_set()
-        dialog.transient(self.root)
-        
-        # Center dialog on parent window
-        dialog.update_idletasks()
-        parent_x = self.root.winfo_x()
-        parent_y = self.root.winfo_y()
-        parent_width = self.root.winfo_width()
-        parent_height = self.root.winfo_height()
-        
-        dialog_width = dialog.winfo_width()
-        dialog_height = dialog.winfo_height()
-        
-        center_x = parent_x + (parent_width // 2) - (dialog_width // 2)
-        center_y = parent_y + (parent_height // 2) - (dialog_height // 2)
-        
-        dialog.geometry(f"+{center_x}+{center_y}")
-        
-        # Create main frame with scrolling capability
-        main_frame = Frame(dialog, bg="#ffffff", padx=25, pady=25)
-        main_frame.pack(fill=BOTH, expand=True)
-        
-        # Title label
-        title_label = Label(main_frame, text="Add Custom Metadata", bg="#ffffff", font=("Segoe UI", 13, "bold"), fg="#1a1a1a")
-        title_label.pack(anchor=W, pady=(0, 20))
-        
-        # Description label
-        desc_label = Label(main_frame, text="Add new metadata field for your file (e.g., GPS location, camera info, custom tags)", bg="#ffffff", font=("Segoe UI", 9), fg="#666666", wraplength=500, justify=LEFT)
-        desc_label.pack(anchor=W, pady=(0, 18))
-        
-        # Field name label and entry
-        field_name_label = Label(main_frame, text="Field Name:", bg="#ffffff", font=("Segoe UI", 11, "bold"), fg="#333333")
-        field_name_label.pack(anchor=W, pady=(0, 8))
-        
-        field_name_entry = ttk.Entry(main_frame, font=("Segoe UI", 10), width=50)
-        field_name_entry.pack(fill=X, pady=(0, 16))
-        field_name_entry.focus()
-        
-        # Field value label and entry
-        field_value_label = Label(main_frame, text="Field Value:", bg="#ffffff", font=("Segoe UI", 11, "bold"), fg="#333333")
-        field_value_label.pack(anchor=W, pady=(0, 8))
-        
-        field_value_entry = ttk.Entry(main_frame, font=("Segoe UI", 10), width=50)
-        field_value_entry.pack(fill=X, pady=(0, 12))
-        
-        # Example text
-        example_label = Label(main_frame, text="Examples: GPS Latitude: 40.7128 | Camera Model: Canon EOS | Author: John Doe", bg="#ffffff", font=("Segoe UI", 9, "italic"), fg="#999999", wraplength=500, justify=LEFT)
-        example_label.pack(anchor=W, pady=(0, 20))
-        
-        # Buttons frame
-        button_frame = Frame(main_frame, bg="#ffffff")
-        button_frame.pack(fill=X, pady=(10, 0))
-        
-        def add_field():
-            field_name = field_name_entry.get().strip()
-            field_value = field_value_entry.get().strip()
-            
-            if not field_name:
-                messagebox.showwarning("Invalid Input", "Please enter a field name.")
-                field_name_entry.focus()
-                return
-            
-            if not field_value:
-                messagebox.showwarning("Invalid Input", "Please enter a field value.")
-                field_value_entry.focus()
-                return
-            
-            if field_name in self.NON_EDITABLE_FIELDS:
-                messagebox.showwarning("Reserved Field", f"'{field_name}' is a reserved field and cannot be modified.")
-                field_name_entry.focus()
-                return
-            
-            if field_name in self.editor_entry_fields:
-                messagebox.showwarning("Duplicate Field", f"Field '{field_name}' already exists. Edit it directly or use a different name.")
-                field_name_entry.focus()
-                return
-            
-            # Add the new field to extracted metadata
-            self.extracted_metadata[field_name] = field_value
-            
-            # Refresh the editor display
-            self._populate_editor_fields(self.extracted_metadata)
-            
-            # Update status
-            self.editor_status.config(text=f"Added new field: {field_name}", fg="#28a745")
-            
-            dialog.destroy()
-            messagebox.showinfo("Success", f"Field '{field_name}' added successfully.\n\nDon't forget to save your changes.")
-        
-        def cancel_dialog():
-            dialog.destroy()
-        
-        # Add buttons
-        ttk.Button(button_frame, text="Add", command=add_field).pack(side=LEFT, padx=5)
-        ttk.Button(button_frame, text="Cancel", command=cancel_dialog).pack(side=LEFT, padx=5)
-
-        # Allow Enter key to add field
-        field_value_entry.bind("<Return>", lambda e: add_field())
+        """Open dialog to add custom metadata field to the editor."""
+        if self.editor_tab:
+            self.editor_tab.add_metadata_field()
 
     # ------------------------------------------------------------------
     # Menu handlers
@@ -1977,7 +453,9 @@ class MetadataAnalyzerApp:
             self.set_status("Ready")
 
     def menu_import_metadata(self) -> None:
-        filepath = filedialog.askopenfilename(title="Import Metadata", filetypes=[("JSON files", "*.json"), ("All files", "*.*")])
+        filepath = filedialog.askopenfilename(
+            title="Import Metadata", filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
+        )
         if filepath:
             try:
                 with open(filepath, "r", encoding="utf-8") as f:
@@ -2023,8 +501,8 @@ class MetadataAnalyzerApp:
             self.risk_analysis = None
             if self.c1_text:
                 self.c1_text.config(state=NORMAL)
-                self.c1_text.delete(1.0, END)
-                self.c1_text.insert(END, "Data cleared. Ready to start.\n")
+                self.c1_text.delete(1.0, "end")
+                self.c1_text.insert("end", "Data cleared. Ready to start.\n")
                 self.c1_text.config(state=DISABLED)
             self._render_risk_analysis(None)
             self._clear_editor_fields()
@@ -2053,7 +531,6 @@ class MetadataAnalyzerApp:
     def menu_backup_database(self) -> None:
         try:
             import shutil
-            from datetime import datetime
 
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             backup_path = filedialog.asksaveasfilename(
@@ -2071,7 +548,7 @@ class MetadataAnalyzerApp:
 
     def menu_clear_history(self) -> None:
         if messagebox.askyesno("Clear History", "Delete all metadata history? This cannot be undone."):
-            if db.clear_metadata():
+            if db and db.clear_metadata():
                 messagebox.showinfo("Success", "History cleared successfully.")
                 if callable(self.history_refresh):
                     self.history_refresh()
@@ -2146,27 +623,39 @@ class MetadataAnalyzerApp:
         settings_frame = Frame(settings_window, bg="#ffffff")
         settings_frame.pack(fill=BOTH, expand=True, padx=15, pady=10)
 
-        Label(settings_frame, text="Display Settings", font=("Segoe UI", 11, "bold"), bg="#ffffff").pack(anchor=W, pady=(0, 8))
+        Label(settings_frame, text="Display Settings", font=("Segoe UI", 11, "bold"), bg="#ffffff").pack(
+            anchor=W, pady=(0, 8)
+        )
 
         theme_frame = Frame(settings_frame, bg="#ffffff")
         theme_frame.pack(fill=X, pady=5)
         Label(theme_frame, text="Theme:", bg="#ffffff", width=15, anchor=W).pack(side=LEFT)
         theme_var = StringVar(value="Light")
-        ttk.Combobox(theme_frame, textvariable=theme_var, values=["Light", "Dark"], state="readonly", width=20).pack(side=LEFT)
+        ttk.Combobox(theme_frame, textvariable=theme_var, values=["Light", "Dark"], state="readonly", width=20).pack(
+            side=LEFT
+        )
 
         font_frame = Frame(settings_frame, bg="#ffffff")
         font_frame.pack(fill=X, pady=5)
         Label(font_frame, text="Font Size:", bg="#ffffff", width=15, anchor=W).pack(side=LEFT)
         font_var = StringVar(value="11")
-        ttk.Combobox(font_frame, textvariable=font_var, values=["9", "10", "11", "12", "13", "14"], state="readonly", width=20).pack(side=LEFT)
+        ttk.Combobox(
+            font_frame, textvariable=font_var, values=["9", "10", "11", "12", "13", "14"], state="readonly", width=20
+        ).pack(side=LEFT)
 
-        Label(settings_frame, text="Behavior Settings", font=("Segoe UI", 11, "bold"), bg="#ffffff").pack(anchor=W, pady=(15, 8))
+        Label(settings_frame, text="Behavior Settings", font=("Segoe UI", 11, "bold"), bg="#ffffff").pack(
+            anchor=W, pady=(15, 8)
+        )
 
-        auto_refresh_var = BooleanVar(value=True)
-        Checkbutton(settings_frame, text="Auto-refresh history on data change", variable=auto_refresh_var, bg="#ffffff").pack(anchor=W, pady=3)
+        auto_refresh_var = StringVar(value="1")
+        Checkbutton(settings_frame, text="Auto-refresh history on data change", variable=auto_refresh_var, bg="#ffffff").pack(
+            anchor=W, pady=3
+        )
 
-        confirm_delete_var = BooleanVar(value=True)
-        Checkbutton(settings_frame, text="Confirm before deleting records", variable=confirm_delete_var, bg="#ffffff").pack(anchor=W, pady=3)
+        confirm_delete_var = StringVar(value="1")
+        Checkbutton(settings_frame, text="Confirm before deleting records", variable=confirm_delete_var, bg="#ffffff").pack(
+            anchor=W, pady=3
+        )
 
         button_frame = Frame(settings_window, bg="#f5f7fa")
         button_frame.pack(fill=X, padx=15, pady=(10, 15))
@@ -2183,104 +672,94 @@ class MetadataAnalyzerApp:
         recent_window = Toplevel(self.root)
         recent_window.title("Recent Files")
         recent_window.config(bg="#f5f7fa")
-        
-        # Set window size
+
         window_width = 700
         window_height = 500
-        
-        # Center the window on the main window
+
         main_x = self.root.winfo_x()
         main_y = self.root.winfo_y()
         main_width = self.root.winfo_width()
         main_height = self.root.winfo_height()
-        
+
         x = main_x + (main_width - window_width) // 2
         y = main_y + (main_height - window_height) // 2
-        
+
         recent_window.geometry(f"{window_width}x{window_height}+{x}+{y}")
         recent_window.transient(self.root)
         recent_window.grab_set()
         recent_window.resizable(False, False)
 
-        # Header section with modern styling
         header_frame = Frame(recent_window, bg="#0066cc", height=60)
         header_frame.pack(fill=X)
         header_frame.pack_propagate(False)
-        
+
         Label(
-            header_frame, 
-            text="Recent Files", 
-            font=("Segoe UI", 16, "bold"), 
-            bg="#0066cc", 
-            fg="white"
+            header_frame,
+            text="Recent Files",
+            font=("Segoe UI", 16, "bold"),
+            bg="#0066cc",
+            fg="white",
         ).pack(side=LEFT, padx=20, pady=15)
-        
+
         Label(
-            header_frame, 
-            text="Last 10 extracted files", 
-            font=("Segoe UI", 9), 
-            bg="#0066cc", 
-            fg="#b3d9ff"
+            header_frame,
+            text="Last 10 extracted files",
+            font=("Segoe UI", 9),
+            bg="#0066cc",
+            fg="#b3d9ff",
         ).pack(side=LEFT, padx=(0, 20), pady=15)
 
         try:
-            recent_data = db.get_recent_records(limit=10)
+            recent_data = db.get_recent_records(limit=10) if db else []
 
-            # Main content frame with padding
             content_frame = Frame(recent_window, bg="#f5f7fa")
             content_frame.pack(fill=BOTH, expand=True, padx=0, pady=0)
 
             if not recent_data:
-                # Empty state with icon
                 empty_frame = Frame(content_frame, bg="#ffffff")
                 empty_frame.pack(fill=BOTH, expand=True, padx=20, pady=20)
-                
+
                 Label(
-                    empty_frame, 
-                    text="No Files", 
-                    font=("Segoe UI", 24, "bold"), 
-                    bg="#ffffff", 
-                    fg="#cccccc"
+                    empty_frame,
+                    text="No Files",
+                    font=("Segoe UI", 24, "bold"),
+                    bg="#ffffff",
+                    fg="#cccccc",
                 ).pack(pady=(40, 10))
-                
+
                 Label(
-                    empty_frame, 
-                    text="No recent files", 
-                    font=("Segoe UI", 12, "bold"), 
-                    bg="#ffffff", 
-                    fg="#666666"
+                    empty_frame,
+                    text="No recent files",
+                    font=("Segoe UI", 12, "bold"),
+                    bg="#ffffff",
+                    fg="#666666",
                 ).pack(pady=(0, 5))
-                
+
                 Label(
-                    empty_frame, 
-                    text="Extract metadata from files to see them here", 
-                    font=("Segoe UI", 10), 
-                    bg="#ffffff", 
-                    fg="#999999"
+                    empty_frame,
+                    text="Extract metadata from files to see them here",
+                    font=("Segoe UI", 10),
+                    bg="#ffffff",
+                    fg="#999999",
                 ).pack(pady=(0, 40))
             else:
-                # Scrollable frame for file list
                 list_container = Frame(content_frame, bg="#f5f7fa")
                 list_container.pack(fill=BOTH, expand=True, padx=20, pady=15)
-                
-                # Create canvas and scrollbar
+
                 canvas = Canvas(list_container, bg="#f5f7fa", highlightthickness=0)
                 scrollbar = ttk.Scrollbar(list_container, orient="vertical", command=canvas.yview)
                 scrollable_frame = Frame(canvas, bg="#f5f7fa")
-                
+
                 scrollable_frame.bind(
-                    "<Configure>",
-                    lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+                    "<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
                 )
-                
+
                 canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
                 canvas.configure(yscrollcommand=scrollbar.set)
-                
-                # Pack canvas and scrollbar
+
                 canvas.pack(side=LEFT, fill=BOTH, expand=True)
                 scrollbar.pack(side=RIGHT, fill=Y)
-                
-                # Enable mouse wheel scrolling
+
                 def _on_mousewheel(event):
                     delta_steps = 0
                     if hasattr(event, "delta") and event.delta:
@@ -2295,131 +774,121 @@ class MetadataAnalyzerApp:
                 recent_window.bind("<MouseWheel>", _on_mousewheel, add="+")
                 recent_window.bind("<Button-4>", _on_mousewheel, add="+")
                 recent_window.bind("<Button-5>", _on_mousewheel, add="+")
-                
-                # Populate file list with improved styling
+
                 for idx, row in enumerate(recent_data, 1):
                     file_item = Frame(scrollable_frame, bg="#ffffff", relief=FLAT, bd=0)
                     file_item.pack(fill=X, pady=(0, 10), ipady=5, ipadx=5)
-                    
-                    # Add subtle shadow effect with border
                     file_item.config(highlightbackground="#e0e0e0", highlightthickness=1)
-                    
-                    # Index badge
+
                     index_frame = Frame(file_item, bg="#0066cc", width=40, height=40)
                     index_frame.pack(side=LEFT, padx=(10, 15), pady=10)
                     index_frame.pack_propagate(False)
-                    
+
                     Label(
-                        index_frame, 
-                        text=str(idx), 
-                        font=("Segoe UI", 12, "bold"), 
-                        bg="#0066cc", 
-                        fg="white"
+                        index_frame,
+                        text=str(idx),
+                        font=("Segoe UI", 12, "bold"),
+                        bg="#0066cc",
+                        fg="white",
                     ).place(relx=0.5, rely=0.5, anchor=CENTER)
-                    
-                    # File info section
+
                     info_frame = Frame(file_item, bg="#ffffff")
                     info_frame.pack(side=LEFT, fill=BOTH, expand=True, pady=10)
-                    
-                    # File name
+
                     Label(
-                        info_frame, 
-                        text=row[2], 
-                        font=("Segoe UI", 11, "bold"), 
-                        bg="#ffffff", 
-                        fg="#1a1a1a", 
-                        anchor=W
+                        info_frame,
+                        text=row[2],
+                        font=("Segoe UI", 11, "bold"),
+                        bg="#ffffff",
+                        fg="#1a1a1a",
+                        anchor=W,
                     ).pack(fill=X, padx=0, pady=(0, 5))
-                    
-                    # File path
+
                     path_label = Label(
-                        info_frame, 
-                        text=f"Path: {row[1]}", 
-                        font=("Segoe UI", 9), 
-                        bg="#ffffff", 
-                        fg="#666666", 
-                        anchor=W
+                        info_frame,
+                        text=f"Path: {row[1]}",
+                        font=("Segoe UI", 9),
+                        bg="#ffffff",
+                        fg="#666666",
+                        anchor=W,
                     )
                     path_label.pack(fill=X, padx=0, pady=(0, 3))
-                    
-                    # File metadata (type, size, date)
+
                     meta_frame = Frame(info_frame, bg="#ffffff")
                     meta_frame.pack(fill=X, padx=0)
-                    
+
                     Label(
-                        meta_frame, 
-                        text=row[4].upper(), 
-                        font=("Segoe UI", 8, "bold"), 
-                        bg="#e8f4fd", 
-                        fg="#0066cc", 
+                        meta_frame,
+                        text=row[4].upper(),
+                        font=("Segoe UI", 8, "bold"),
+                        bg="#e8f4fd",
+                        fg="#0066cc",
                         relief=FLAT,
                         padx=8,
-                        pady=2
+                        pady=2,
                     ).pack(side=LEFT, padx=(0, 5))
-                    
+
                     Label(
-                        meta_frame, 
-                        text=row[3], 
-                        font=("Segoe UI", 8), 
-                        bg="#f0f0f0", 
+                        meta_frame,
+                        text=row[3],
+                        font=("Segoe UI", 8),
+                        bg="#f0f0f0",
                         fg="#666666",
                         relief=FLAT,
                         padx=8,
-                        pady=2
+                        pady=2,
                     ).pack(side=LEFT, padx=(0, 5))
-                    
-                    # Extracted date (if available)
+
                     if len(row) > 5 and row[5]:
                         Label(
-                            meta_frame, 
-                            text=row[5], 
-                            font=("Segoe UI", 8), 
-                            bg="#f0f0f0", 
+                            meta_frame,
+                            text=row[5],
+                            font=("Segoe UI", 8),
+                            bg="#f0f0f0",
                             fg="#666666",
                             relief=FLAT,
                             padx=8,
-                            pady=2
+                            pady=2,
                         ).pack(side=LEFT)
-                        
+
         except Exception as e:
             error_frame = Frame(content_frame, bg="#ffffff")
             error_frame.pack(fill=BOTH, expand=True, padx=20, pady=20)
-            
+
             Label(
-                error_frame, 
-                text="ERROR", 
-                font=("Segoe UI", 24, "bold"), 
-                bg="#ffffff", 
-                fg="#ff6b6b"
+                error_frame,
+                text="ERROR",
+                font=("Segoe UI", 24, "bold"),
+                bg="#ffffff",
+                fg="#ff6b6b",
             ).pack(pady=(40, 10))
-            
+
             Label(
-                error_frame, 
-                text="Error Loading Recent Files", 
-                font=("Segoe UI", 12, "bold"), 
-                bg="#ffffff", 
-                fg="#ff6b6b"
+                error_frame,
+                text="Error Loading Recent Files",
+                font=("Segoe UI", 12, "bold"),
+                bg="#ffffff",
+                fg="#ff6b6b",
             ).pack(pady=(0, 5))
-            
+
             Label(
-                error_frame, 
-                text=str(e), 
-                font=("Segoe UI", 9), 
-                bg="#ffffff", 
-                fg="#999999", 
-                wraplength=500
+                error_frame,
+                text=str(e),
+                font=("Segoe UI", 9),
+                bg="#ffffff",
+                fg="#999999",
+                wraplength=500,
             ).pack(pady=(0, 40))
 
-        # Footer with close button
         footer_frame = Frame(recent_window, bg="#f5f7fa", height=70)
         footer_frame.pack(fill=X, side=BOTTOM)
         footer_frame.pack_propagate(False)
-        
+
         close_btn = ttk.Button(
-            footer_frame, 
-            text="Close", 
+            footer_frame,
+            text="Close",
             command=recent_window.destroy,
-            width=15
+            width=15,
         )
         close_btn.pack(pady=15)
 
@@ -2427,14 +896,18 @@ class MetadataAnalyzerApp:
         if not hasattr(self, "current_font_size"):
             self.current_font_size = 11
         self.current_font_size = min(self.current_font_size + 1, 16)
-        messagebox.showinfo("Zoom", f"Font size increased to {self.current_font_size}pt.\n(Changes apply to new text widgets)")
+        messagebox.showinfo(
+            "Zoom", f"Font size increased to {self.current_font_size}pt.\n(Changes apply to new text widgets)"
+        )
         self.set_status(f"Zoom: {self.current_font_size}pt")
 
     def menu_zoom_out(self) -> None:
         if not hasattr(self, "current_font_size"):
             self.current_font_size = 11
         self.current_font_size = max(self.current_font_size - 1, 8)
-        messagebox.showinfo("Zoom", f"Font size decreased to {self.current_font_size}pt.\n(Changes apply to new text widgets)")
+        messagebox.showinfo(
+            "Zoom", f"Font size decreased to {self.current_font_size}pt.\n(Changes apply to new text widgets)"
+        )
         self.set_status(f"Zoom: {self.current_font_size}pt")
 
     def menu_reset_zoom(self) -> None:
@@ -2466,12 +939,16 @@ class MetadataAnalyzerApp:
         batch_window.transient(self.root)
         batch_window.grab_set()
 
-        Label(batch_window, text="Batch Process Metadata Extraction", font=("Segoe UI", 14, "bold"), bg="#f5f7fa").pack(fill=X, padx=15, pady=10)
+        Label(
+            batch_window, text="Batch Process Metadata Extraction", font=("Segoe UI", 14, "bold"), bg="#f5f7fa"
+        ).pack(fill=X, padx=15, pady=10)
 
         main_frame = Frame(batch_window, bg="#ffffff")
         main_frame.pack(fill=BOTH, expand=True, padx=15, pady=10)
 
-        Label(main_frame, text="Select files to process:", font=("Segoe UI", 10, "bold"), bg="#ffffff").pack(anchor=W, pady=(0, 8))
+        Label(main_frame, text="Select files to process:", font=("Segoe UI", 10, "bold"), bg="#ffffff").pack(
+            anchor=W, pady=(0, 8)
+        )
 
         files_listbox = Listbox(main_frame, height=10, bg="#ffffff", fg="#333333")
         files_listbox.pack(fill=BOTH, expand=True, pady=(0, 10))
@@ -2482,10 +959,14 @@ class MetadataAnalyzerApp:
         scrollbar.config(command=files_listbox.yview)
 
         def add_files():
-            filetypes = (("All Files", "*.*"), ("Images", "*.jpg *.jpeg *.png *.gif *.bmp"), ("Documents", "*.pdf *.docx *.txt *.xlsx"))
+            filetypes = (
+                ("All Files", "*.*"),
+                ("Images", "*.jpg *.jpeg *.png *.gif *.bmp"),
+                ("Documents", "*.pdf *.docx *.txt *.xlsx"),
+            )
             selected = filedialog.askopenfilenames(filetypes=filetypes)
             for file in selected:
-                files_listbox.insert(END, file)
+                files_listbox.insert("end", file)
 
         def remove_file():
             selection = files_listbox.curselection()
@@ -2493,10 +974,10 @@ class MetadataAnalyzerApp:
                 files_listbox.delete(selection[0])
 
         def clear_list():
-            files_listbox.delete(0, END)
+            files_listbox.delete(0, "end")
 
         def process_batch():
-            file_list = files_listbox.get(0, END)
+            file_list = files_listbox.get(0, "end")
             if not file_list:
                 messagebox.showwarning("No Files", "Please select files to process.")
                 return
@@ -2552,21 +1033,10 @@ class MetadataAnalyzerApp:
         ttk.Button(bottom_frame, text="Process", command=process_batch).pack(side=RIGHT, padx=5)
         ttk.Button(bottom_frame, text="Cancel", command=batch_window.destroy).pack(side=RIGHT, padx=5)
 
-    def _create_metric_card(self, parent, title, value, subtitle="", bg_start="#667eea", bg_end="#764ba2", width=None):
-        """Create a material design-style card with gradient background for displaying metrics.
-        
-        Args:
-            parent: Parent widget
-            title: Card title/metric name
-            value: Main value to display
-            subtitle: Optional subtitle text
-            bg_start: Gradient start color
-            bg_end: Gradient end color
-            width: Optional fixed width
-            
-        Returns:
-            Frame: The created card frame
-        """
+    def _create_metric_card(
+        self, parent, title, value, subtitle="", bg_start="#667eea", bg_end="#764ba2", width=None
+    ):
+        """Create a material design-style card with gradient background for displaying metrics."""
         return create_metric_card(parent, title, value, subtitle, bg_start, bg_end, width)
 
     def menu_statistics(self) -> None:
@@ -2603,7 +1073,9 @@ class MetadataAnalyzerApp:
         center_y = parent_y + (parent_h - win_h) // 2
         issue_window.geometry(f"{win_w}x{win_h}+{center_x}+{center_y}")
 
-        Label(issue_window, text="Report an Issue", font=("Segoe UI", 14, "bold"), bg="#f5f7fa").pack(fill=X, padx=15, pady=10)
+        Label(issue_window, text="Report an Issue", font=("Segoe UI", 14, "bold"), bg="#f5f7fa").pack(
+            fill=X, padx=15, pady=10
+        )
 
         main_frame = Frame(issue_window, bg="#ffffff")
         main_frame.pack(fill=BOTH, expand=True, padx=15, pady=10)
@@ -2613,12 +1085,18 @@ class MetadataAnalyzerApp:
         title_entry.pack(fill=X, pady=(0, 10))
 
         Label(main_frame, text="Description:", font=("Segoe UI", 10, "bold"), bg="#ffffff").pack(anchor=W, pady=(0, 5))
-        desc_text = scrolledtext.ScrolledText(main_frame, height=12, width=60, wrap=WORD, font=("Segoe UI", 10))
+        desc_text = scrolledtext.ScrolledText(main_frame, height=12, width=60, wrap="word", font=("Segoe UI", 10))
         desc_text.pack(fill=BOTH, expand=True, pady=(0, 10))
 
         Label(main_frame, text="Category:", font=("Segoe UI", 10, "bold"), bg="#ffffff").pack(anchor=W, pady=(0, 5))
         category_var = StringVar()
-        ttk.Combobox(main_frame, textvariable=category_var, values=["Bug", "Feature Request", "Improvement", "Documentation", "Other"], state="readonly", width=47).pack(fill=X, pady=(0, 10))
+        ttk.Combobox(
+            main_frame,
+            textvariable=category_var,
+            values=["Bug", "Feature Request", "Improvement", "Documentation", "Other"],
+            state="readonly",
+            width=47,
+        ).pack(fill=X, pady=(0, 10))
 
         def submit_issue():
             if not title_entry.get():
@@ -2649,47 +1127,51 @@ class MetadataAnalyzerApp:
     # Keyboard shortcuts setup
     # ------------------------------------------------------------------
     def _setup_keyboard_shortcuts(self) -> None:
-        """Bind keyboard shortcuts to their respective commands.
-        
-        Sets up all keyboard shortcuts shown in menu accelerators.
-        """
+        """Bind keyboard shortcuts to their respective commands."""
         # File menu shortcuts
-        self.root.bind('<Control-n>', lambda e: self.menu_new_project())
-        self.root.bind('<Control-N>', lambda e: self.menu_new_project())
-        self.root.bind('<Control-o>', lambda e: self.choose_file())
-        self.root.bind('<Control-O>', lambda e: self.choose_file())
-        self.root.bind('<Control-e>', lambda e: self.menu_export_results())
-        self.root.bind('<Control-E>', lambda e: self.menu_export_results())
-        
+        self.root.bind("<Control-n>", lambda e: self.menu_new_project())
+        self.root.bind("<Control-N>", lambda e: self.menu_new_project())
+        self.root.bind("<Control-o>", lambda e: self.choose_file())
+        self.root.bind("<Control-O>", lambda e: self.choose_file())
+        self.root.bind("<Control-e>", lambda e: self.menu_export_results())
+        self.root.bind("<Control-E>", lambda e: self.menu_export_results())
+
         # Edit menu shortcuts
-        self.root.bind('<Control-c>', lambda e: self.menu_copy_results())
-        self.root.bind('<Control-C>', lambda e: self.menu_copy_results())
-        
+        self.root.bind("<Control-c>", lambda e: self.menu_copy_results())
+        self.root.bind("<Control-C>", lambda e: self.menu_copy_results())
+
         # View menu shortcuts
-        self.root.bind('<F5>', lambda e: self.menu_refresh_all())
-        self.root.bind('<Control-plus>', lambda e: self.menu_zoom_in())
-        self.root.bind('<Control-equal>', lambda e: self.menu_zoom_in())  # Handle + key without shift
-        self.root.bind('<Control-minus>', lambda e: self.menu_zoom_out())
-        self.root.bind('<Control-0>', lambda e: self.menu_reset_zoom())
-        self.root.bind('<F11>', lambda e: self.menu_fullscreen())
-        
+        self.root.bind("<F5>", lambda e: self.menu_refresh_all())
+        self.root.bind("<Control-plus>", lambda e: self.menu_zoom_in())
+        self.root.bind("<Control-equal>", lambda e: self.menu_zoom_in())
+        self.root.bind("<Control-minus>", lambda e: self.menu_zoom_out())
+        self.root.bind("<Control-0>", lambda e: self.menu_reset_zoom())
+        self.root.bind("<F11>", lambda e: self.menu_fullscreen())
+
         # Help menu shortcuts
-        self.root.bind('<F1>', lambda e: self.menu_show_documentation())
-        self.root.bind('<Control-question>', lambda e: self.menu_show_shortcuts())
-        self.root.bind('<Control-slash>', lambda e: self.menu_show_shortcuts())  # Alternative for Ctrl+?
+        self.root.bind("<F1>", lambda e: self.menu_show_documentation())
+        self.root.bind("<Control-question>", lambda e: self.menu_show_shortcuts())
+        self.root.bind("<Control-slash>", lambda e: self.menu_show_shortcuts())
 
     # ------------------------------------------------------------------
     # Menu bar
     # ------------------------------------------------------------------
     def _build_menu_bar(self) -> None:
-        """Build application menu bar with File, Edit, View, and Help menus.
-        
-        Creates menu items for file operations, editing, viewing options, and help/support.
-        """
-        menu = Menu(self.root, bg="#f5f7fa", fg="#1a1a1a", activebackground="#0066cc", activeforeground="#ffffff", relief=FLAT, bd=0)
+        """Build application menu bar with File, Edit, View, Tools, and Help menus."""
+        menu = Menu(
+            self.root,
+            bg="#f5f7fa",
+            fg="#1a1a1a",
+            activebackground="#0066cc",
+            activeforeground="#ffffff",
+            relief=FLAT,
+            bd=0,
+        )
         self.root.config(menu=menu)
 
-        file_menu = Menu(menu, tearoff=0, bg="#f5f7fa", fg="#1a1a1a", activebackground="#0066cc", activeforeground="#ffffff")
+        file_menu = Menu(
+            menu, tearoff=0, bg="#f5f7fa", fg="#1a1a1a", activebackground="#0066cc", activeforeground="#ffffff"
+        )
         menu.add_cascade(label="File", menu=file_menu)
         file_menu.add_command(label="New Project", command=self.menu_new_project, accelerator="Ctrl+N")
         file_menu.add_command(label="Open File", command=self.choose_file, accelerator="Ctrl+O")
@@ -2701,12 +1183,16 @@ class MetadataAnalyzerApp:
         file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self.root.quit, accelerator="Alt+F4")
 
-        edit_menu = Menu(menu, tearoff=0, bg="#f5f7fa", fg="#1a1a1a", activebackground="#0066cc", activeforeground="#ffffff")
+        edit_menu = Menu(
+            menu, tearoff=0, bg="#f5f7fa", fg="#1a1a1a", activebackground="#0066cc", activeforeground="#ffffff"
+        )
         menu.add_cascade(label="Edit", menu=edit_menu)
         edit_menu.add_command(label="Clear All Data", command=self.menu_clear_all_data)
         edit_menu.add_command(label="Copy Results", command=self.menu_copy_results, accelerator="Ctrl+C")
 
-        view_menu = Menu(menu, tearoff=0, bg="#f5f7fa", fg="#1a1a1a", activebackground="#0066cc", activeforeground="#ffffff")
+        view_menu = Menu(
+            menu, tearoff=0, bg="#f5f7fa", fg="#1a1a1a", activebackground="#0066cc", activeforeground="#ffffff"
+        )
         menu.add_cascade(label="View", menu=view_menu)
         view_menu.add_command(label="Refresh All Data", command=self.menu_refresh_all, accelerator="F5")
         view_menu.add_separator()
@@ -2716,7 +1202,9 @@ class MetadataAnalyzerApp:
         view_menu.add_separator()
         view_menu.add_command(label="Full Screen", command=self.menu_fullscreen, accelerator="F11")
 
-        tools_menu = Menu(menu, tearoff=0, bg="#f5f7fa", fg="#1a1a1a", activebackground="#0066cc", activeforeground="#ffffff")
+        tools_menu = Menu(
+            menu, tearoff=0, bg="#f5f7fa", fg="#1a1a1a", activebackground="#0066cc", activeforeground="#ffffff"
+        )
         menu.add_cascade(label="Tools", menu=tools_menu)
         tools_menu.add_command(label="Generate Report", command=self.generate_report)
         tools_menu.add_command(label="Batch Process", command=self.menu_batch_process)
@@ -2726,7 +1214,9 @@ class MetadataAnalyzerApp:
         tools_menu.add_separator()
         tools_menu.add_command(label="Statistics Dashboard", command=self.menu_statistics)
 
-        help_menu = Menu(menu, tearoff=0, bg="#f5f7fa", fg="#1a1a1a", activebackground="#0066cc", activeforeground="#ffffff")
+        help_menu = Menu(
+            menu, tearoff=0, bg="#f5f7fa", fg="#1a1a1a", activebackground="#0066cc", activeforeground="#ffffff"
+        )
         menu.add_cascade(label="Help", menu=help_menu)
         help_menu.add_command(label="Documentation", command=self.menu_show_documentation, accelerator="F1")
         help_menu.add_command(label="Getting Started", command=self.menu_show_documentation)
@@ -2741,8 +1231,6 @@ class MetadataAnalyzerApp:
 
 
 # Public entrypoint to maintain existing API
-
-
 def run_gui() -> None:
     app = MetadataAnalyzerApp()
     app.run()

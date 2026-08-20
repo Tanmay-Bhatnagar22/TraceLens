@@ -12,8 +12,15 @@ if str(PROJECT_ROOT) not in sys.path:
 from .gui import MetadataAnalyzerApp, run_gui
 from .statistics_dashboard import (
     StatisticsDashboard,
-    open_statistics_dashboard,
     create_metric_card,
+    open_statistics_dashboard,
+)
+from .tabs import (
+    EditorTab,
+    ExtractorTab,
+    HistoryTab,
+    PreviewTab,
+    RiskTab,
 )
 
 __all__ = [
@@ -22,6 +29,9 @@ __all__ = [
     "StatisticsDashboard",
     "open_statistics_dashboard",
     "create_metric_card",
+    "ExtractorTab",
+    "EditorTab",
+    "HistoryTab",
+    "RiskTab",
+    "PreviewTab",
 ]
-
-
