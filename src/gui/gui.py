@@ -149,7 +149,7 @@ class MetadataAnalyzerApp:
         self.y_position = (screen_height - self.window_height) // 2
 
         self.root.geometry(f"{self.window_width}x{self.window_height}+{self.x_position}+{self.y_position}")
-        self.root.resizable(False, False)
+        self.root.resizable(True, True)
 
         logo_path = self._resource_path("Metadata.png")
         if os.path.exists(logo_path):
@@ -164,8 +164,8 @@ class MetadataAnalyzerApp:
     def _create_widgets(self) -> None:
         """Build UI components: title, notebook tabs (Extractor, Editor, History), controls, and status bar."""
         # Title label
-        title_label = Label(self.root, text="TraceLens", bg="#f5f7fa", font=("Segoe UI", 24, "bold"), fg="#1a1a1a")
-        title_label.place(x=10, y=10, width=self.window_width - 20, height=40)
+        title_label = Label(self.root, text="TraceLens : Intelligent Metadata Analysis & Privacy Inspection Toolkit", bg="#f5f7fa", font=("Segoe UI", 22, "bold"), fg="#1a1a1a")
+        title_label.place(relx=0.5, y=25, width=self.window_width - 20, height=40, anchor="center")
 
         # Configure modern flat design theme
         style = ttk.Style()
@@ -174,7 +174,7 @@ class MetadataAnalyzerApp:
         style.configure("TNotebook.Tab", padding=[20, 10], font=("Segoe UI", 10))
 
         nb = ttk.Notebook(self.root)
-        nb.place(x=10, y=55, width=self.window_width - 20, height=self.window_height - 70)
+        nb.pack(fill=BOTH, expand=True, padx=10, pady=(60, 10))
         self.nb_widget = nb
 
         tab1 = Frame(nb, bg="#ffffff")
@@ -407,6 +407,7 @@ class MetadataAnalyzerApp:
             "md",
             "log",
         ]
+
         filter_combo.set("All")
         filter_combo.pack(side=LEFT, padx=(0, 15))
 
@@ -428,6 +429,7 @@ class MetadataAnalyzerApp:
             "Size (Largest)",
             "Size (Smallest)",
         ]
+        
         sort_combo.set("Date (Newest)")
         sort_combo.pack(side=LEFT, padx=(0, 15))
 
@@ -469,27 +471,32 @@ class MetadataAnalyzerApp:
         button_frame = Frame(history_container, bg="#ffffff")
         button_frame.pack(fill=X, pady=(12, 0))
 
+        for i in range(9):
+            button_frame.columnconfigure(i, weight=1, uniform="buttons")
+
+        # Create buttons
         clear_btn = ttk.Button(button_frame, text="Clear Filters")
-        clear_btn.pack(side=LEFT, padx=6)
-
         export_csv_btn = ttk.Button(button_frame, text="Export CSV")
-        export_csv_btn.pack(side=LEFT, padx=6)
         export_excel_btn = ttk.Button(button_frame, text="Export Excel")
-        export_excel_btn.pack(side=LEFT, padx=6)
         export_json_btn = ttk.Button(button_frame, text="Export JSON")
-        export_json_btn.pack(side=LEFT, padx=6)
         export_xml_btn = ttk.Button(button_frame, text="Export XML")
-        export_xml_btn.pack(side=LEFT, padx=6)
         export_pdf_btn = ttk.Button(button_frame, text="Export PDF")
-        export_pdf_btn.pack(side=LEFT, padx=6)
-
-        delete_btn = ttk.Button(button_frame, text="Delete")
-        delete_btn.pack(side=RIGHT, padx=6)
-        delete_all_btn = ttk.Button(button_frame, text="Delete All")
-        delete_all_btn.pack(side=RIGHT, padx=6)
         refresh_btn = ttk.Button(button_frame, text="Refresh")
-        refresh_btn.pack(side=RIGHT, padx=6)
+        delete_all_btn = ttk.Button(button_frame, text="Delete All")
+        delete_btn = ttk.Button(button_frame, text="Delete")
 
+        # Place buttons in one row
+        clear_btn.grid(row=0, column=0, padx=6, pady=6, sticky="ew")
+        export_csv_btn.grid(row=0, column=1, padx=6, pady=6, sticky="ew")
+        export_excel_btn.grid(row=0, column=2, padx=6, pady=6, sticky="ew")
+        export_json_btn.grid(row=0, column=3, padx=6, pady=6, sticky="ew")
+        export_xml_btn.grid(row=0, column=4, padx=6, pady=6, sticky="ew")
+        export_pdf_btn.grid(row=0, column=5, padx=6, pady=6, sticky="ew")
+
+        refresh_btn.grid(row=0, column=6, padx=6, pady=6, sticky="ew")
+        delete_all_btn.grid(row=0, column=7, padx=6, pady=6, sticky="ew")
+        delete_btn.grid(row=0, column=8, padx=6, pady=6, sticky="ew")
+        
         def humanize(dt_str: str) -> str:
             if not dt_str:
                 return ""
@@ -644,40 +651,179 @@ class MetadataAnalyzerApp:
 
     def _build_risk_tab(self, tab5: Frame) -> None:
         """Construct Risk analyzer tab using stacked charts on left and summary panel on right."""
+        # Main container
         container = Frame(tab5, bg="#ffffff", relief=SOLID, bd=1)
         container.pack(fill=BOTH, expand=True, padx=8, pady=8)
 
+        # Make 2 columns resize
+        container.columnconfigure(0, weight=3)  # Left side gets more space
+        container.columnconfigure(1, weight=1)  # Comments gets less space
+
+        # Make the main row resize vertically
+        container.rowconfigure(0, weight=1)
+
+        # ---------------- LEFT PANEL ----------------
         left_panel = Frame(container, bg="#ffffff")
-        left_panel.pack(side=LEFT, fill=BOTH, expand=True, padx=(10, 8), pady=10)
+        left_panel.grid(
+            row=0,
+            column=0,
+            sticky="nsew",
+            padx=(10, 8),
+            pady=10
+        )
 
-        right_column = Frame(container, bg="#ffffff", width=340)
-        right_column.pack(side=RIGHT, fill=BOTH, expand=False, padx=(8, 10), pady=10)
-        right_column.pack_propagate(False)
+        # 2 chart rows
+        left_panel.columnconfigure(0, weight=1)
 
-        Label(left_panel, text="Risk Meter", bg="#ffffff", font=("Segoe UI", 11, "bold"), fg="#1a1a1a", anchor=W).pack(fill=X, padx=2, pady=(0, 4))
-        risk_meter_frame = Frame(left_panel, bg="#ffffff", relief=SOLID, bd=1, height=200)
-        risk_meter_frame.pack(fill=X, expand=False)
-        risk_meter_frame.pack_propagate(False)
+        # Risk Meter space
+        left_panel.rowconfigure(1, weight=1)
 
-        Label(left_panel, text="Forensic Timeline", bg="#ffffff", font=("Segoe UI", 11, "bold"), fg="#1a1a1a", anchor=W).pack(fill=X, padx=2, pady=(12, 4))
-        timeline_frame = Frame(left_panel, bg="#ffffff", relief=SOLID, bd=1)
-        timeline_frame.pack(fill=BOTH, expand=True)
+        # Timeline gets more vertical space
+        left_panel.rowconfigure(3, weight=2)
 
-        Label(right_column, text="Comments", bg="#ffffff", font=("Segoe UI", 11, "bold"), fg="#1a1a1a", anchor=W).pack(fill=X, padx=2, pady=(0, 4))
-        comments_frame = Frame(right_column, bg="#ffffff", relief=SOLID, bd=1)
-        comments_frame.pack(fill=BOTH, expand=True)
+        # Risk Meter label
+        Label(
+            left_panel,
+            text="Risk Meter",
+            bg="#ffffff",
+            font=("Segoe UI", 11, "bold"),
+            fg="#1a1a1a",
+            anchor=W
+        ).grid(
+            row=0,
+            column=0,
+            sticky="ew",
+            padx=2,
+            pady=(0, 4)
+        )
 
-        self.risk_chart_canvas = FigureCanvasTkAgg(Figure(figsize=(6.0, 2.4), facecolor="white"), master=risk_meter_frame)
-        self.risk_chart_canvas.get_tk_widget().pack(fill=BOTH, expand=True, padx=8, pady=8)
+        # Risk Meter box
+        risk_meter_frame = Frame(
+            left_panel,
+            bg="#ffffff",
+            relief=SOLID,
+            bd=1
+        )
+        risk_meter_frame.grid(
+            row=1,
+            column=0,
+            sticky="nsew"
+        )
 
-        self.timeline_chart_canvas = FigureCanvasTkAgg(Figure(figsize=(6.0, 2.6), facecolor="white"), master=timeline_frame)
-        self.timeline_chart_canvas.get_tk_widget().pack(fill=BOTH, expand=True, padx=8, pady=8)
+        # Timeline label
+        Label(
+            left_panel,
+            text="Forensic Timeline",
+            bg="#ffffff",
+            font=("Segoe UI", 11, "bold"),
+            fg="#1a1a1a",
+            anchor=W
+        ).grid(
+            row=2,
+            column=0,
+            sticky="ew",
+            padx=2,
+            pady=(12, 4)
+        )
 
-        self.risk_summary_text = scrolledtext.ScrolledText(comments_frame, wrap=WORD, bg="#f5f5f5", font=("Segoe UI", 10), fg="#333333", bd=0, relief=FLAT, padx=10, pady=10)
+        # Timeline box
+        timeline_frame = Frame(
+            left_panel,
+            bg="#ffffff",
+            relief=SOLID,
+            bd=1
+        )
+        timeline_frame.grid(
+            row=3,
+            column=0,
+            sticky="nsew"
+        )
+
+        # ---------------- RIGHT PANEL ----------------
+        right_column = Frame(container, bg="#ffffff")
+        right_column.grid(
+            row=0,
+            column=1,
+            sticky="nsew",
+            padx=(8, 10),
+            pady=10
+        )
+
+        right_column.columnconfigure(0, weight=1)
+        right_column.rowconfigure(1, weight=1)
+
+        # Comments label
+        Label(
+            right_column,
+            text="Comments",
+            bg="#ffffff",
+            font=("Segoe UI", 11, "bold"),
+            fg="#1a1a1a",
+            anchor=W
+        ).grid(
+            row=0,
+            column=0,
+            sticky="ew",
+            padx=2,
+            pady=(0, 4)
+        )
+
+        # Comments box
+        comments_frame = Frame(
+            right_column,
+            bg="#ffffff",
+            relief=SOLID,
+            bd=1
+        )
+        comments_frame.grid(
+            row=1,
+            column=0,
+            sticky="nsew"
+        )
+
+        # ---------------- RISK CHART ----------------
+        self.risk_chart_canvas = FigureCanvasTkAgg(
+            Figure(figsize=(6.0, 2.4), facecolor="white"),
+            master=risk_meter_frame
+        )
+
+        self.risk_chart_canvas.get_tk_widget().pack(
+            fill=BOTH,
+            expand=True,
+            padx=8,
+            pady=8
+        )
+
+        # ---------------- TIMELINE CHART ----------------
+        self.timeline_chart_canvas = FigureCanvasTkAgg(
+            Figure(figsize=(6.0, 2.6), facecolor="white"),
+            master=timeline_frame
+        )
+
+        self.timeline_chart_canvas.get_tk_widget().pack(
+            fill=BOTH,
+            expand=True,
+            padx=8,
+            pady=8
+        )
+
+        # ---------------- COMMENTS ----------------
+        self.risk_summary_text = scrolledtext.ScrolledText(
+            comments_frame,
+            wrap=WORD,
+            bg="#f5f5f5",
+            font=("Segoe UI", 10),
+            fg="#333333",
+            bd=0,
+            relief=FLAT,
+            padx=10,
+            pady=10
+        )
+
         self.risk_summary_text.pack(fill=BOTH, expand=True)
         self.risk_summary_text.config(state=DISABLED)
 
-        self._render_risk_analysis(None)
+        tab5.after_idle(lambda: self._render_risk_analysis(None))
 
     def _render_risk_analysis(self, analysis: dict | None) -> None:
         """Render risk gauge, reasons and timeline chart in Risk analyzer tab."""
@@ -687,20 +833,127 @@ class MetadataAnalyzerApp:
 
         if not analysis:
             if self.risk_chart_canvas:
-                fig = Figure(figsize=(6.0, 2.4), facecolor="white")
+                # Use the existing figure connected to the canvas
+                fig = self.risk_chart_canvas.figure
+
+                # Clear old chart
+                fig.clear()
+
+                # Create fresh axis
                 ax = fig.add_subplot(111)
+
+                color_map = {
+                    "LOW": "#2ecc71",
+                    "MEDIUM": "#f39c12",
+                    "HIGH": "#e74c3c"
+                }
+
+                risk_color = color_map.get(level, "#3498db")
+
+                # Full semicircle
+                full_fill = plt.matplotlib.patches.Wedge(
+                    (0, 0),
+                    1.0,
+                    0,
+                    180,
+                    width=1.0,
+                    facecolor=risk_color,
+                    edgecolor="none",
+                    alpha=0.85,
+                    zorder=2
+                )
+                ax.add_patch(full_fill)
+
+                # Semicircle border
+                outline = plt.matplotlib.patches.Wedge(
+                    (0, 0),
+                    1.0,
+                    0,
+                    180,
+                    width=0.04,
+                    facecolor="none",
+                    edgecolor="#9ca3af",
+                    zorder=3
+                )
+                ax.add_patch(outline)
+
+                # Bottom line
+                ax.plot(
+                    [1, -1],
+                    [0, 0],
+                    color="#9ca3af",
+                    linewidth=2,
+                    zorder=3
+                )
+
+                # Labels
+                ax.text(
+                    0, 0.35,
+                    f"{score}%",
+                    ha="center",
+                    va="center",
+                    fontsize=30,
+                    weight="bold",
+                    color="#1f2937"
+                )
+
+                ax.text(
+                    0, 0.10,
+                    f"Risk: {level}",
+                    ha="center",
+                    va="center",
+                    fontsize=12,
+                    color="#4b5563"
+                )
+
+                ax.set_title(
+                    "Privacy Risk Gauge",
+                    fontsize=11,
+                    weight="bold",
+                    y=0.95,
+                    pad=2
+                )
+
+                ax.set_xlim(-1.25, 1.25)
+                ax.set_ylim(-0.25, 1.25)
                 ax.axis("off")
-                ax.text(0.5, 0.5, "No risk scan available.\nExtract metadata to analyze.", ha="center", va="center", fontsize=11)
-                self.risk_chart_canvas.figure = fig
-                self.risk_chart_canvas.draw()
+
+                # Adjust chart to current canvas
+                fig.tight_layout(pad=0.5)
+
+                # Redraw existing canvas
+                self.risk_chart_canvas.draw_idle()
 
             if self.timeline_chart_canvas:
-                fig = Figure(figsize=(6.0, 2.6), facecolor="white")
+                # Use existing figure
+                fig = self.timeline_chart_canvas.figure
+
+                # Clear old chart
+                fig.clear()
+
+                # Create new axis
                 ax = fig.add_subplot(111)
-                ax.axis("off")
-                ax.text(0.5, 0.5, "No timeline events available.", ha="center", va="center", fontsize=11)
-                self.timeline_chart_canvas.figure = fig
-                self.timeline_chart_canvas.draw()
+
+                if timeline:
+                    # Your existing timeline code here
+                    ...
+                else:
+                    ax.axis("off")
+
+                    ax.text(
+                        0.5,
+                        0.5,
+                        "No timeline events discovered from metadata.",
+                        ha="center",
+                        va="center",
+                        fontsize=10
+                    )
+
+                # Fit graph to available canvas
+                fig.tight_layout(pad=0.5)
+
+                # Redraw
+                self.timeline_chart_canvas.draw_idle()
 
             if self.risk_summary_text and self.risk_summary_text.winfo_exists():
                 self.risk_summary_text.insert(END, "Risk Level: N/A\nRisk Score: N/A\n\nRun extraction to view risk reasons and forensic timeline.")
@@ -772,7 +1025,7 @@ class MetadataAnalyzerApp:
                     
                     # Sort by date
                     sorted_dates = sorted(date_events.keys())
-                    counts = [len(date_events[d]) for d in sorted_dates]
+                    y_vals = [0.5] * len(sorted_dates)
                     
                     # Get first event name for each date
                     event_labels = []
@@ -795,16 +1048,16 @@ class MetadataAnalyzerApp:
                     x_vals = list(range(len(sorted_dates)))
                     
                     # Plot line chart with area fill
-                    ax.fill_between(x_vals, counts, alpha=0.4, color="#6b9effe6", zorder=1)
-                    ax.plot(x_vals, counts, color="#4facfe", linewidth=2.5, marker="o", markersize=8, zorder=2)
+                    ax.fill_between(x_vals, y_vals, alpha=0.4, color="#ffffffe6", zorder=1)
+                    ax.plot(x_vals, y_vals, color="#4facfe", linewidth=2.5, marker="o", markersize=8, zorder=2)
                     
                     # Label each node with date and event type
-                    for x, count, full_date, event_label in zip(x_vals, counts, full_date_labels, event_labels):
+                    for x, y, full_date, event_label in zip(x_vals, y_vals, full_date_labels, event_labels):
                         # Show date on top
-                        ax.text(x, count + 0.2, full_date, ha="center", va="bottom", fontsize=8, color="#333333", weight="bold")
+                        ax.text(x, y + 0.2, full_date, ha="center", va="bottom", fontsize=8, color="#333333", weight="bold")
                         # Show event type below the date (slightly lower)
                         if event_label:
-                            ax.text(x, count + 0.05, event_label, ha="center", va="bottom", fontsize=7, color="#666666", style="italic")
+                            ax.text(x, y + 0.05, event_label, ha="center", va="bottom", fontsize=7, color="#666666", style="italic")
                     
                     # Styling - hide x-axis labels and y-axis
                     ax.set_xticks([])
