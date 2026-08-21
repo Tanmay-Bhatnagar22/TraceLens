@@ -300,6 +300,7 @@ class PrivacyForensicAnalyzer:
 
 
 _analyzer = PrivacyForensicAnalyzer()
+analyzer = _analyzer
 
 
 def analyze_metadata(

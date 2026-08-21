@@ -545,6 +545,7 @@ class MetadataReporter:
 
 
 _reporter = MetadataReporter()
+reporter = _reporter
 
 
 # Module-level wrapper functions for backward compatibility
