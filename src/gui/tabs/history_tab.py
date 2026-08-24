@@ -143,6 +143,7 @@ class HistoryTab:
             "File Name",
             "File Size",
             "File Type",
+            "Risk",
             "Extracted At",
             "Modified On",
             "Record ID",
@@ -154,17 +155,19 @@ class HistoryTab:
             if col == "S.No":
                 self.tree.column(col, stretch=NO, minwidth=50, width=60, anchor=CENTER)
             elif col == "File Path":
-                self.tree.column(col, stretch=YES, minwidth=220, width=260, anchor=W)
+                self.tree.column(col, stretch=YES, minwidth=200, width=240, anchor=W)
             elif col == "File Name":
-                self.tree.column(col, stretch=YES, minwidth=160, width=190, anchor=W)
+                self.tree.column(col, stretch=YES, minwidth=140, width=170, anchor=W)
             elif col == "File Size":
-                self.tree.column(col, stretch=NO, minwidth=90, width=110, anchor=CENTER)
+                self.tree.column(col, stretch=NO, minwidth=80, width=100, anchor=CENTER)
             elif col == "File Type":
                 self.tree.column(col, stretch=NO, minwidth=70, width=80, anchor=CENTER)
+            elif col == "Risk":
+                self.tree.column(col, stretch=NO, minwidth=75, width=90, anchor=CENTER)
             elif col == "Extracted At":
-                self.tree.column(col, stretch=NO, minwidth=150, width=180, anchor=CENTER)
+                self.tree.column(col, stretch=NO, minwidth=140, width=160, anchor=CENTER)
             elif col == "Modified On":
-                self.tree.column(col, stretch=NO, minwidth=150, width=180, anchor=CENTER)
+                self.tree.column(col, stretch=NO, minwidth=140, width=160, anchor=CENTER)
             elif col == "Record ID":
                 self.tree.column(col, stretch=NO, minwidth=0, width=0, anchor=CENTER)
 
@@ -234,10 +237,31 @@ class HistoryTab:
 
         data = db.filter_and_search_data(search_val, filter_val, date_val, sort_val)
         self.tree.delete(*self.tree.get_children())
+        risk_cache = {}
         for idx, row in enumerate(data, start=1):
             extracted_at = self._humanize(row[5])
             modified_on = self._humanize(row[6])
-            self.tree.insert("", END, values=(idx, row[1], row[2], row[3], row[4], extracted_at, modified_on, row[0]))
+
+            # Determine risk rating
+            risk_level = "LOW"
+            if risk_analyzer and len(row) > 7 and row[7]:
+                try:
+                    cache_key = (row[0], row[5], row[6])
+                    if cache_key in risk_cache:
+                        risk_level = risk_cache[cache_key]
+                    else:
+                        parsed_meta = json.loads(row[7]) if isinstance(row[7], str) else (row[7] or {})
+                        res = risk_analyzer.analyze_metadata(parsed_meta, row[1])
+                        risk_level = res.get("risk_level", "LOW")
+                        risk_cache[cache_key] = risk_level
+                except Exception:
+                    risk_level = "LOW"
+
+            self.tree.insert(
+                "",
+                END,
+                values=(idx, row[1], row[2], row[3], row[4], risk_level, extracted_at, modified_on, row[0]),
+            )
         return data
 
     def clear_filters(self) -> None:

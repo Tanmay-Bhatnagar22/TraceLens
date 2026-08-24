@@ -165,3 +165,67 @@ def test_app_delegation_to_statistics_module():
     with mock.patch('src.gui.gui.open_statistics_dashboard') as mock_open_stats:
         app.menu_statistics()
         mock_open_stats.assert_called_once_with(app.root)
+
+
+def test_forensic_insights_calculation():
+    """Test forensic metrics, completeness score, duplicate detection, and executive summary."""
+    now = datetime.now()
+    records = [
+        (1, "/tmp/doc1.pdf", "report.pdf", "1.5 MB", "PDF", now.isoformat(), now.isoformat(), '{"Author": "Alice", "Software": "Acrobat", "GPS": "1,2"}'),
+        (2, "/tmp/doc2.pdf", "report.pdf", "1.5 MB", "PDF", now.isoformat(), now.isoformat(), '{"Author": "Alice", "Software": "Acrobat"}'),
+        (3, "/tmp/img.png", "photo.png", "3.0 MB", "PNG", now.isoformat(), now.isoformat(), '{"Software": "Photoshop"}'),
+    ]
+
+    stats = calculate_enhanced_stats(records)
+    assert stats is not None
+    assert stats["total"] == 3
+    assert len(stats["duplicates"]) == 1
+    assert stats["duplicates"][0]["filename"] == "report.pdf"
+    assert stats["duplicates"][0]["count"] == 2
+    assert stats["authors"]["Alice"] == 2
+    assert stats["software"]["Acrobat"] == 2
+    assert stats["software"]["Photoshop"] == 1
+    assert stats["avg_completeness"] > 0
+    assert "TraceLens indexed 3 file records" in stats["executive_summary"]
+
+
+def test_filter_records_today_and_presets():
+    """Test filtering records with 'Today' and 'This Year' presets."""
+    now = datetime.now()
+    records = [
+        (1, "/tmp/a.pdf", "a.pdf", "100 B", "PDF", now.isoformat(), now.isoformat(), "{}"),
+        (2, "/tmp/b.pdf", "b.pdf", "200 B", "PDF", (now - timedelta(days=2)).isoformat(), now.isoformat(), "{}"),
+    ]
+
+    today_records = filter_records(records, {"date_range": "Today"})
+    assert len(today_records) == 1
+    assert today_records[0][0] == 1
+
+    year_records = filter_records(records, {"date_range": "This Year"})
+    assert len(year_records) >= 1
+
+
+def test_dashboard_tabs_structure():
+    """Test StatisticsDashboard tabs structure without data explorer."""
+    dashboard = StatisticsDashboard()
+    assert not hasattr(dashboard, "tab_explorer")
+    assert "records_cache" in dashboard.dashboard_state
+    assert dashboard.dashboard_state["request_token"] == 0
+
+
+def test_history_tab_risk_column():
+    """Test that HistoryTab properly configures Risk column in treeview."""
+    from src.gui.tabs.history_tab import HistoryTab
+    app_mock = mock.MagicMock()
+    parent_mock = mock.MagicMock()
+    with mock.patch("src.gui.tabs.history_tab.Frame"), \
+         mock.patch("src.gui.tabs.history_tab.ttk.Treeview") as mock_tree_cls, \
+         mock.patch.object(HistoryTab, "load_data"):
+        tab = HistoryTab(parent_mock, app_mock)
+        assert tab is not None
+        mock_tree_cls.assert_called_once()
+        # Verify columns argument includes 'Risk'
+        call_kwargs = mock_tree_cls.call_args[1]
+        assert "Risk" in call_kwargs.get("columns", ())
+
+
