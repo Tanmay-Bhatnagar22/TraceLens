@@ -467,8 +467,8 @@ def create_metric_card(
             subtitle_label.config(bg=bg_start)
 
     for widget in interactive_widgets:
-        widget.bind("<Enter>", on_enter)
-        widget.bind("<Leave>", on_leave)
+        widget.bind("<Enter>", on_enter, add="+")
+        widget.bind("<Leave>", on_leave, add="+")
 
     return card_container
 
@@ -514,10 +514,11 @@ class StatisticsDashboard:
 
         # Tab references
         self.tab_overview: dict | None = None
-        self.tab_charts: Frame | None = None
+        self.tab_charts: dict | None = None
         self.tab_insights: dict | None = None
         self.tab_optimizer: dict | None = None
         self.tab_reports: dict | None = None
+        self._hovered_canvas: Canvas | None = None
 
         # Charts state
         self.chart_canvas: FigureCanvasTkAgg | None = None
@@ -750,16 +751,17 @@ class StatisticsDashboard:
 
         # Create Tab Frames
         self.tab_overview = self._create_scrollable_tab(self.notebook)
-        self.tab_charts = Frame(self.notebook, bg="#f5f7fa")
+        self.tab_charts = self._create_scrollable_tab(self.notebook)
         self.tab_insights = self._create_scrollable_tab(self.notebook)
         self.tab_optimizer = self._create_scrollable_tab(self.notebook)
         self.tab_reports = self._create_scrollable_tab(self.notebook)
 
         self.notebook.add(self.tab_overview["container"], text=" Overview & KPIs ")
-        self.notebook.add(self.tab_charts, text=" Visual Charts ")
+        self.notebook.add(self.tab_charts["container"], text=" Visual Charts ")
         self.notebook.add(self.tab_insights["container"], text=" Forensic Insights ")
         self.notebook.add(self.tab_optimizer["container"], text=" Storage Optimizer ")
         self.notebook.add(self.tab_reports["container"], text=" Export & Reports ")
+        self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed, add="+")
 
         # ---------------- 4. Bottom Status & Action Bar ----------------
         bottom_bar = Frame(self.window, bg="#1e293b", height=38)
@@ -788,10 +790,18 @@ class StatisticsDashboard:
         )
         close_btn.pack(side=RIGHT, padx=12, pady=4)
 
+        # Global window mousewheel listeners as universal fallback
+        self.window.bind("<MouseWheel>", lambda e: self._on_mousewheel(e), add="+")
+        self.window.bind("<Shift-MouseWheel>", lambda e: self._on_shift_mousewheel(e), add="+")
+        self.window.bind("<Button-4>", lambda e: self._on_mousewheel(e), add="+")
+        self.window.bind("<Button-5>", lambda e: self._on_mousewheel(e), add="+")
+        self.window.bind("<Shift-Button-4>", lambda e: self._on_shift_mousewheel(e), add="+")
+        self.window.bind("<Shift-Button-5>", lambda e: self._on_shift_mousewheel(e), add="+")
+
         self.window.protocol("WM_DELETE_WINDOW", self.close)
 
     def _create_scrollable_tab(self, notebook_parent) -> dict:
-        """Create a responsive scrollable tab container."""
+        """Create a responsive scrollable tab container with comprehensive mousewheel support."""
         container = Frame(notebook_parent, bg="#f5f7fa")
         canvas = Canvas(container, bg="#f5f7fa", highlightthickness=0)
         scrollbar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
@@ -805,32 +815,176 @@ class StatisticsDashboard:
         canvas.configure(yscrollcommand=scrollbar.set)
 
         def update_width(event=None):
-            canvas.itemconfig(canvas_window, width=canvas.winfo_width())
+            if canvas.winfo_exists():
+                canvas.itemconfig(canvas_window, width=canvas.winfo_width())
+                canvas.configure(scrollregion=canvas.bbox("all"))
 
         canvas.bind("<Configure>", update_width)
         canvas.pack(side=LEFT, fill=BOTH, expand=True)
         scrollbar.pack(side=RIGHT, fill=Y)
 
-        def _on_wheel(event):
+        # Bind mousewheel and hover listeners to container, canvas, scrollbar, and scrollable_frame
+        self._bind_mousewheel_recursive(container, canvas)
+        self._bind_mousewheel_recursive(canvas, canvas)
+        self._bind_mousewheel_recursive(scrollbar, canvas)
+        self._bind_mousewheel_recursive(scrollable_frame, canvas)
+
+        return {
+            "container": container,
+            "frame": scrollable_frame,
+            "canvas": canvas,
+            "scrollbar": scrollbar,
+        }
+
+    def _on_mousewheel(self, event, target_canvas: Canvas | None = None) -> str | None:
+        """Handle vertical mousewheel scrolling cross-platform for active or target canvas.
+
+        Args:
+            event: Tkinter event containing delta or num.
+            target_canvas: Optional specific canvas to scroll; defaults to hovered or active canvas.
+
+        Returns:
+            str | None: 'break' to prevent duplicate bubbling.
+        """
+        canvas = target_canvas or self._hovered_canvas or self._get_active_canvas()
+        if not canvas:
+            return None
+
+        try:
+            if not canvas.winfo_exists():
+                return None
+
+            delta_steps = 0
+            if sys.platform == "darwin":
+                if hasattr(event, "delta") and event.delta != 0:
+                    delta_steps = -1 * int(event.delta)
+            elif hasattr(event, "delta") and event.delta:
+                delta_steps = int(-1 * (event.delta / 120))
+                if delta_steps == 0:
+                    delta_steps = -1 if event.delta > 0 else 1
+            elif getattr(event, "num", None) == 4:
+                delta_steps = -1
+            elif getattr(event, "num", None) == 5:
+                delta_steps = 1
+
+            if delta_steps:
+                canvas.yview_scroll(delta_steps, "units")
+                return "break"
+        except Exception:
+            pass
+        return None
+
+    def _on_shift_mousewheel(self, event, target_canvas: Canvas | None = None) -> str | None:
+        """Handle horizontal mousewheel scrolling (Shift+Wheel) cross-platform.
+
+        Args:
+            event: Tkinter event containing delta or num.
+            target_canvas: Optional specific canvas to scroll.
+
+        Returns:
+            str | None: 'break' to prevent duplicate bubbling.
+        """
+        canvas = target_canvas or self._hovered_canvas or self._get_active_canvas()
+        if not canvas:
+            return None
+
+        try:
+            if not canvas.winfo_exists():
+                return None
+
+            delta_steps = 0
+            if sys.platform == "darwin":
+                if hasattr(event, "delta") and event.delta != 0:
+                    delta_steps = -1 * int(event.delta)
+            elif hasattr(event, "delta") and event.delta:
+                delta_steps = int(-1 * (event.delta / 120))
+                if delta_steps == 0:
+                    delta_steps = -1 if event.delta > 0 else 1
+            elif getattr(event, "num", None) == 4:
+                delta_steps = -1
+            elif getattr(event, "num", None) == 5:
+                delta_steps = 1
+
+            if delta_steps:
+                canvas.xview_scroll(delta_steps, "units")
+                return "break"
+        except Exception:
+            pass
+        return None
+
+    def _get_active_canvas(self) -> Canvas | None:
+        """Get the canvas widget belonging to the currently visible notebook tab.
+
+        Returns:
+            Canvas | None: Active tab's canvas or None if not found/available.
+        """
+        if not self.notebook or not self.window or not self.window.winfo_exists():
+            return None
+        try:
+            current_tab = self.notebook.select()
+            if not current_tab:
+                return None
+            for tab_data in [
+                self.tab_overview,
+                self.tab_charts,
+                self.tab_insights,
+                self.tab_optimizer,
+                self.tab_reports,
+            ]:
+                if isinstance(tab_data, dict):
+                    container = tab_data.get("container")
+                    if container and str(container) == str(current_tab):
+                        return tab_data.get("canvas")
+        except Exception:
+            pass
+        return None
+
+    def _on_tab_changed(self, event=None) -> None:
+        """Reset hover focus when notebook tab changes to ensure scrolling follows active tab."""
+        self._hovered_canvas = None
+
+    def _bind_mousewheel_recursive(self, widget, canvas: Canvas) -> None:
+        """Recursively bind mousewheel and hover listeners across widget hierarchies.
+
+        Args:
+            widget: Root widget to bind.
+            canvas: Target Canvas associated with the widget hierarchy.
+        """
+        if not widget or not canvas:
+            return
+
+        def _handle_wheel(e):
+            return self._on_mousewheel(e, target_canvas=canvas)
+
+        def _handle_shift_wheel(e):
+            return self._on_shift_mousewheel(e, target_canvas=canvas)
+
+        def _set_hover(e):
+            self._hovered_canvas = canvas
+
+        def _clear_hover(e):
+            if self._hovered_canvas is canvas:
+                self._hovered_canvas = None
+
+        def _bind_single(w):
             try:
-                if not canvas.winfo_exists():
-                    return
-                delta = 0
-                if hasattr(event, "delta") and event.delta:
-                    delta = int(-1 * (event.delta / 120))
-                elif getattr(event, "num", None) == 4:
-                    delta = -1
-                elif getattr(event, "num", None) == 5:
-                    delta = 1
-                if delta:
-                    canvas.yview_scroll(delta, "units")
+                w.bind("<MouseWheel>", _handle_wheel, add="+")
+                w.bind("<Shift-MouseWheel>", _handle_shift_wheel, add="+")
+                w.bind("<Button-4>", _handle_wheel, add="+")
+                w.bind("<Button-5>", _handle_wheel, add="+")
+                w.bind("<Shift-Button-4>", _handle_shift_wheel, add="+")
+                w.bind("<Shift-Button-5>", _handle_shift_wheel, add="+")
+                w.bind("<Enter>", _set_hover, add="+")
+                w.bind("<Leave>", _clear_hover, add="+")
             except Exception:
                 pass
 
-        container.bind("<MouseWheel>", _on_wheel, add="+")
-        scrollable_frame.bind("<MouseWheel>", _on_wheel, add="+")
-
-        return {"container": container, "frame": scrollable_frame, "canvas": canvas}
+        _bind_single(widget)
+        try:
+            for child in widget.winfo_children():
+                self._bind_mousewheel_recursive(child, canvas)
+        except Exception:
+            pass
 
     def _reset_filters(self) -> None:
         """Reset all filter controls to default states."""
@@ -993,11 +1147,12 @@ class StatisticsDashboard:
     # ------------------------------------------------------------------
     def _render_tab_overview(self, stats: dict | None, filtered_records: list) -> None:
         frame = self.tab_overview["frame"]
+        canvas = self.tab_overview.get("canvas")
         for child in frame.winfo_children():
             child.destroy()
 
         if stats is None or stats["total"] == 0:
-            self._render_empty_state(frame, "No Matching Records Found")
+            self._render_empty_state(frame, "No Matching Records Found", canvas=canvas)
             return
 
         summary_card = Frame(frame, bg="#ffffff", highlightbackground="#e2e8f0", highlightthickness=1)
@@ -1171,18 +1326,27 @@ class StatisticsDashboard:
                 anchor=W,
             ).pack(fill=X)
 
+        if canvas:
+            self._bind_mousewheel_recursive(frame, canvas)
+            try:
+                canvas.configure(scrollregion=canvas.bbox("all"))
+            except Exception:
+                pass
+
     # ------------------------------------------------------------------
     # TAB 2: Visual Charts & Analytics
     # ------------------------------------------------------------------
     def _render_tab_charts(self, stats: dict | None, filtered_records: list) -> None:
-        for child in self.tab_charts.winfo_children():
+        frame = self.tab_charts["frame"] if isinstance(self.tab_charts, dict) else self.tab_charts
+        canvas = self.tab_charts.get("canvas") if isinstance(self.tab_charts, dict) else None
+        for child in frame.winfo_children():
             child.destroy()
 
         if stats is None or stats["total"] == 0:
-            self._render_empty_state(self.tab_charts, "No Data for Visual Charts")
+            self._render_empty_state(frame, "No Data for Visual Charts", canvas=canvas)
             return
 
-        chart_top_bar = Frame(self.tab_charts, bg="#ffffff", highlightbackground="#e2e8f0", highlightthickness=1)
+        chart_top_bar = Frame(frame, bg="#ffffff", highlightbackground="#e2e8f0", highlightthickness=1)
         chart_top_bar.pack(fill=X, padx=14, pady=(10, 6))
 
         Label(
@@ -1207,7 +1371,7 @@ class StatisticsDashboard:
         )
         export_chart_btn.pack(side=RIGHT, padx=14, pady=6)
 
-        fig_container = Frame(self.tab_charts, bg="#ffffff", highlightbackground="#e2e8f0", highlightthickness=1)
+        fig_container = Frame(frame, bg="#ffffff", highlightbackground="#e2e8f0", highlightthickness=1)
         fig_container.pack(fill=BOTH, expand=True, padx=14, pady=(0, 10))
 
         fig = Figure(figsize=(11, 6), facecolor="#ffffff", dpi=100)
@@ -1288,6 +1452,13 @@ class StatisticsDashboard:
         self.chart_canvas.draw()
         self.chart_canvas.get_tk_widget().pack(fill=BOTH, expand=True, padx=8, pady=8)
 
+        if canvas:
+            self._bind_mousewheel_recursive(frame, canvas)
+            try:
+                canvas.configure(scrollregion=canvas.bbox("all"))
+            except Exception:
+                pass
+
     def _export_chart_image(self) -> None:
         """Export active matplotlib chart figure to PNG file."""
         if not self.active_figure:
@@ -1310,11 +1481,12 @@ class StatisticsDashboard:
     # ------------------------------------------------------------------
     def _render_tab_insights(self, stats: dict | None, filtered_records: list) -> None:
         frame = self.tab_insights["frame"]
+        canvas = self.tab_insights.get("canvas")
         for child in frame.winfo_children():
             child.destroy()
 
         if stats is None or stats["total"] == 0:
-            self._render_empty_state(frame, "No Forensic Data Available")
+            self._render_empty_state(frame, "No Forensic Data Available", canvas=canvas)
             return
 
         card1 = Frame(frame, bg="#ffffff", highlightbackground="#e2e8f0", highlightthickness=1)
@@ -1392,16 +1564,24 @@ class StatisticsDashboard:
         else:
             Label(soft_box, text="No software metadata recorded.", font=("Segoe UI", 8), bg="#ffffff", fg="#94a3b8", anchor=W).pack(fill=X)
 
+        if canvas:
+            self._bind_mousewheel_recursive(frame, canvas)
+            try:
+                canvas.configure(scrollregion=canvas.bbox("all"))
+            except Exception:
+                pass
+
     # ------------------------------------------------------------------
     # TAB 4: Storage Optimization & Recommendations
     # ------------------------------------------------------------------
     def _render_tab_optimizer(self, stats: dict | None, filtered_records: list) -> None:
         frame = self.tab_optimizer["frame"]
+        canvas = self.tab_optimizer.get("canvas")
         for child in frame.winfo_children():
             child.destroy()
 
         if stats is None or stats["total"] == 0:
-            self._render_empty_state(frame, "No Storage Optimization Data Available")
+            self._render_empty_state(frame, "No Storage Optimization Data Available", canvas=canvas)
             return
 
         rec_card = Frame(frame, bg="#ffffff", highlightbackground="#e2e8f0", highlightthickness=1)
@@ -1445,16 +1625,24 @@ class StatisticsDashboard:
             size_pct = (size_bytes / stats["total_size"] * 100.0) if stats["total_size"] > 0 else 0
             Label(row, text=f"{format_size(size_bytes)}  ({size_pct:.1f}%)", font=("Segoe UI", 8, "bold"), bg="#f8fafc", fg="#475569").pack(side=RIGHT, padx=10)
 
+        if canvas:
+            self._bind_mousewheel_recursive(frame, canvas)
+            try:
+                canvas.configure(scrollregion=canvas.bbox("all"))
+            except Exception:
+                pass
+
     # ------------------------------------------------------------------
     # TAB 5: Export & Reporting Center
     # ------------------------------------------------------------------
     def _render_tab_reports(self, stats: dict | None, filtered_records: list) -> None:
         frame = self.tab_reports["frame"]
+        canvas = self.tab_reports.get("canvas")
         for child in frame.winfo_children():
             child.destroy()
 
         if stats is None or stats["total"] == 0:
-            self._render_empty_state(frame, "No Data for Export")
+            self._render_empty_state(frame, "No Data for Export", canvas=canvas)
             return
 
         export_card = Frame(frame, bg="#ffffff", highlightbackground="#e2e8f0", highlightthickness=1)
@@ -1515,6 +1703,13 @@ class StatisticsDashboard:
             pady=8,
         ).pack(side=LEFT)
 
+        if canvas:
+            self._bind_mousewheel_recursive(frame, canvas)
+            try:
+                canvas.configure(scrollregion=canvas.bbox("all"))
+            except Exception:
+                pass
+
     def _export_csv(self, filtered_records: list) -> None:
         """Export analyzed records to a CSV file."""
         filepath = filedialog.asksaveasfilename(
@@ -1565,7 +1760,7 @@ class StatisticsDashboard:
             self.window.clipboard_append(summary)
             messagebox.showinfo("Copied", "Executive Intelligence Summary copied to clipboard!")
 
-    def _render_empty_state(self, parent_frame: Frame, title: str) -> None:
+    def _render_empty_state(self, parent_frame: Frame, title: str, canvas: Canvas | None = None) -> None:
         """Render a clean empty state card when no matching data is found."""
         empty_box = Frame(parent_frame, bg="#ffffff", highlightbackground="#e2e8f0", highlightthickness=1)
         empty_box.pack(fill=BOTH, expand=True, padx=20, pady=40)
@@ -1586,10 +1781,23 @@ class StatisticsDashboard:
             fg="#94a3b8",
         ).pack(pady=(0, 40))
 
+        if canvas:
+            self._bind_mousewheel_recursive(empty_box, canvas)
+
     def close(self) -> None:
         """Safely destroy dashboard window and release resources."""
         self._cancel_pending_refresh()
+        self._hovered_canvas = None
         if self.window and self.window.winfo_exists():
+            try:
+                self.window.unbind("<MouseWheel>")
+                self.window.unbind("<Shift-MouseWheel>")
+                self.window.unbind("<Button-4>")
+                self.window.unbind("<Button-5>")
+                self.window.unbind("<Shift-Button-4>")
+                self.window.unbind("<Shift-Button-5>")
+            except Exception:
+                pass
             self.window.destroy()
             self.window = None
 

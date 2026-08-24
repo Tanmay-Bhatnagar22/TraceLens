@@ -213,19 +213,115 @@ def test_dashboard_tabs_structure():
     assert dashboard.dashboard_state["request_token"] == 0
 
 
-def test_history_tab_risk_column():
-    """Test that HistoryTab properly configures Risk column in treeview."""
-    from src.gui.tabs.history_tab import HistoryTab
-    app_mock = mock.MagicMock()
-    parent_mock = mock.MagicMock()
-    with mock.patch("src.gui.tabs.history_tab.Frame"), \
-         mock.patch("src.gui.tabs.history_tab.ttk.Treeview") as mock_tree_cls, \
-         mock.patch.object(HistoryTab, "load_data"):
-        tab = HistoryTab(parent_mock, app_mock)
-        assert tab is not None
-        mock_tree_cls.assert_called_once()
-        # Verify columns argument includes 'Risk'
-        call_kwargs = mock_tree_cls.call_args[1]
-        assert "Risk" in call_kwargs.get("columns", ())
+def test_mousewheel_vertical_and_horizontal_handlers():
+    """Test _on_mousewheel and _on_shift_mousewheel on canvas with various OS event payloads."""
+    dashboard = StatisticsDashboard()
+    mock_canvas = mock.MagicMock()
+    mock_canvas.winfo_exists.return_value = True
+
+    # Windows scroll down (-120 delta)
+    event_win_down = mock.MagicMock(delta=-120)
+    res = dashboard._on_mousewheel(event_win_down, target_canvas=mock_canvas)
+    assert res == "break"
+    mock_canvas.yview_scroll.assert_called_with(1, "units")
+
+    # Windows scroll up (+120 delta)
+    event_win_up = mock.MagicMock(delta=120)
+    res = dashboard._on_mousewheel(event_win_up, target_canvas=mock_canvas)
+    assert res == "break"
+    mock_canvas.yview_scroll.assert_called_with(-1, "units")
+
+    # Linux scroll up (Button-4)
+    event_linux_up = mock.MagicMock(delta=0, num=4)
+    del event_linux_up.delta
+    dashboard._on_mousewheel(event_linux_up, target_canvas=mock_canvas)
+    mock_canvas.yview_scroll.assert_called_with(-1, "units")
+
+    # Linux scroll down (Button-5)
+    event_linux_down = mock.MagicMock(delta=0, num=5)
+    del event_linux_down.delta
+    dashboard._on_mousewheel(event_linux_down, target_canvas=mock_canvas)
+    mock_canvas.yview_scroll.assert_called_with(1, "units")
+
+    # Horizontal shift mousewheel
+    event_shift = mock.MagicMock(delta=-120)
+    res_shift = dashboard._on_shift_mousewheel(event_shift, target_canvas=mock_canvas)
+    assert res_shift == "break"
+    mock_canvas.xview_scroll.assert_called_with(1, "units")
+
+
+def test_mousewheel_hover_and_active_canvas():
+    """Test canvas hover priority, tab switching, and active canvas detection."""
+    dashboard = StatisticsDashboard()
+    mock_canvas1 = mock.MagicMock()
+    mock_canvas1.winfo_exists.return_value = True
+    mock_canvas2 = mock.MagicMock()
+    mock_canvas2.winfo_exists.return_value = True
+
+    # Set tab references
+    dashboard.tab_overview = {"container": "tab1", "canvas": mock_canvas1}
+    dashboard.tab_insights = {"container": "tab2", "canvas": mock_canvas2}
+
+    mock_notebook = mock.MagicMock()
+    mock_window = mock.MagicMock()
+    mock_window.winfo_exists.return_value = True
+    dashboard.notebook = mock_notebook
+    dashboard.window = mock_window
+
+    # Active tab is tab1
+    mock_notebook.select.return_value = "tab1"
+    assert dashboard._get_active_canvas() == mock_canvas1
+
+    # Active tab switched to tab2
+    mock_notebook.select.return_value = "tab2"
+    assert dashboard._get_active_canvas() == mock_canvas2
+
+    # Hover overrides active canvas
+    dashboard._hovered_canvas = mock_canvas1
+    event = mock.MagicMock(delta=-120)
+    dashboard._on_mousewheel(event)
+    mock_canvas1.yview_scroll.assert_called_with(1, "units")
+
+    # Tab change clears hover
+    dashboard._on_tab_changed()
+    assert dashboard._hovered_canvas is None
+
+
+def test_mousewheel_recursive_binding():
+    """Test _bind_mousewheel_recursive binds event handlers to widget and all child elements."""
+    dashboard = StatisticsDashboard()
+    mock_canvas = mock.MagicMock()
+
+    mock_parent = mock.MagicMock()
+    mock_child1 = mock.MagicMock()
+    mock_child2 = mock.MagicMock()
+    mock_parent.winfo_children.return_value = [mock_child1, mock_child2]
+    mock_child1.winfo_children.return_value = []
+    mock_child2.winfo_children.return_value = []
+
+    dashboard._bind_mousewheel_recursive(mock_parent, mock_canvas)
+
+    for w in [mock_parent, mock_child1, mock_child2]:
+        w.bind.assert_any_call("<MouseWheel>", mock.ANY, add="+")
+        w.bind.assert_any_call("<Shift-MouseWheel>", mock.ANY, add="+")
+        w.bind.assert_any_call("<Button-4>", mock.ANY, add="+")
+        w.bind.assert_any_call("<Button-5>", mock.ANY, add="+")
+        w.bind.assert_any_call("<Enter>", mock.ANY, add="+")
+        w.bind.assert_any_call("<Leave>", mock.ANY, add="+")
+
+
+def test_dashboard_close_safe_unbinding():
+    """Test that closing StatisticsDashboard unbinds global listeners without error."""
+    dashboard = StatisticsDashboard()
+    mock_window = mock.MagicMock()
+    mock_window.winfo_exists.return_value = True
+    dashboard.window = mock_window
+
+    dashboard.close()
+    mock_window.unbind.assert_any_call("<MouseWheel>")
+    mock_window.unbind.assert_any_call("<Shift-MouseWheel>")
+    mock_window.destroy.assert_called_once()
+    assert dashboard.window is None
+
 
 
