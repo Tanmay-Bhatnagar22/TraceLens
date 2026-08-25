@@ -27,11 +27,14 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from src.cli.output import app_header, console, mapping_table, message, records_table, risk_table, summary_panel, timeline_table
 from src.cli.validation import CLIValidationError, collect_files, normalize_path, parse_key_value_pairs, require_directory, require_file
+from src.config.logging_config import clear_logs, get_log_file_path, get_logger, get_recent_logs, setup_logging
 from src.core.database import db as db_core
 from src.core.editor import editor as editor_core
 from src.core.extractor import extractor as extractor_core
 from src.core.reports import report as report_core
 from src.core.risk import risk_analyzer as risk_core
+
+logger = get_logger("cli")
 
 db = db_core
 editor = editor_core
@@ -88,6 +91,9 @@ def _get_state() -> CLIState:
 def _set_state_from_context(ctx: typer.Context, verbose: bool, quiet: bool) -> CLIState:
     state = CLIState(verbose=verbose, quiet=quiet)
     ctx.obj = state
+    # Initialize logging level according to verbosity flags
+    level = "DEBUG" if verbose else ("WARNING" if quiet else "INFO")
+    setup_logging(level=level, log_to_console=verbose)
     return state
 
 
@@ -97,15 +103,19 @@ def _emit_header(state: CLIState) -> None:
 
 
 def _print_error(text: str) -> None:
+    logger.error(text)
     message(f"Error: {text}", kind="error")
 
 
 def _print_warning(text: str) -> None:
+    logger.warning(text)
     message(text, kind="warning")
 
 
 def _print_success(text: str) -> None:
+    logger.info(text)
     message(text, kind="success")
+
 
 
 def _normalize_path(raw: str) -> str:
@@ -317,6 +327,7 @@ def extract(
     recursive: bool = typer.Option(True, "--recursive/--flat", help="Scan folders recursively."),
 ) -> None:
     state = _get_state()
+    logger.info("Extract command invoked for targets: %s (save_to_db=%s, recursive=%s)", targets, not no_save, recursive)
     try:
         files = collect_files(targets, recursive=recursive)
     except CLIValidationError as error:
@@ -327,6 +338,8 @@ def extract(
         _print_warning("No files were found in the provided target(s).")
         raise typer.Exit(code=1)
 
+    logger.debug("Found %d file(s) to extract", len(files))
+
     if len(files) == 1:
         file_path = files[0]
         with console.status(f"Extracting metadata from {file_path.name}...", spinner="dots"):
@@ -335,6 +348,7 @@ def extract(
             _print_error(metadata.get("Error", "Extraction failed."))
             raise typer.Exit(code=1)
 
+        logger.info("Successfully extracted metadata for %s", file_path)
         console.print(mapping_table(f"Metadata for {file_path.name}", metadata))
         summary_lines = [
             f"File: {file_path}",
@@ -361,12 +375,15 @@ def extract(
             metadata, _ = _extract_metadata(str(file_path), save_to_db=not no_save)
             if not isinstance(metadata, dict) or "Error" in metadata:
                 failed += 1
+                logger.warning("Failed extraction on batch file: %s", file_path)
             else:
                 entries.append({"file_path": str(file_path), "metadata": metadata})
+                logger.debug("Extracted metadata for: %s", file_path)
                 if state.verbose:
                     console.print(f"[cyan]Processed[/cyan] {file_path}")
             progress.advance(task)
 
+    logger.info("Batch extraction completed: %d successful, %d failed", len(entries), failed)
     summary = risk_core.analyze_batch(entries) if entries else {"total_files": 0, "risk_counts": {"LOW": 0, "MEDIUM": 0, "HIGH": 0}}
     counts = summary.get("risk_counts", {})
     console.print(
@@ -392,6 +409,7 @@ def analyze(
     recursive: bool = typer.Option(True, "--recursive/--flat", help="Scan folders recursively."),
 ) -> None:
     state = _get_state()
+    logger.info("Analyze command invoked for targets: %s (recursive=%s)", targets, recursive)
     try:
         files = collect_files(targets, recursive=recursive)
     except CLIValidationError as error:
@@ -401,6 +419,7 @@ def analyze(
     if not files:
         _print_warning("No files were found in the provided target(s).")
         raise typer.Exit(code=1)
+
 
     analyses: list[dict[str, Any]] = []
     progress_columns = [
@@ -517,11 +536,13 @@ def edit(
     db_result = (False, "Database update disabled")
     file_result = (False, "File write disabled")
 
+    logger.info("Editing metadata for source: %s (updates=%s, save_db=%s, write_file=%s)", source, updates, save_db, write_file)
     if save_db:
         db_result = editor_core.save_edited_metadata(str(source), parsed)
     if write_file:
         file_result = editor_core.write_metadata_to_file(str(source), parsed["metadata"])
 
+    logger.info("Edit result - Database: %s, File: %s", db_result, file_result)
     changed_fields = [f"{key}: {value}" for key, value in updates.items()]
     console.print(summary_panel("Metadata Edit", changed_fields, style="green"))
     console.print(
@@ -544,6 +565,7 @@ def report_command(
     format_name: str = typer.Option("both", "--format", "-f", case_sensitive=False, help="Output format: txt, pdf, or both."),
     output_dir: str = typer.Option(str(PROJECT_ROOT), "--output-dir", help="Directory where reports should be written."),
 ) -> None:
+    logger.info("Report command invoked for source: %s (format=%s, output_dir=%s)", source, format_name, output_dir)
     try:
         file_path_text, metadata, record = _choose_source_metadata(source)
     except CLIValidationError as error:
@@ -563,12 +585,15 @@ def report_command(
         txt_path = output_directory / f"{base_name}_report_{timestamp}.txt"
         txt_path.write_text(text_report, encoding="utf-8")
         outputs.append(txt_path)
+        logger.debug("Generated text report: %s", txt_path)
 
     if format_name.lower() in {"pdf", "both"}:
         pdf_path = output_directory / f"{base_name}_report_{timestamp}.pdf"
         report_core.create_pdf_report_from_text(text_report, str(pdf_path))
         outputs.append(pdf_path)
+        logger.debug("Generated PDF report: %s", pdf_path)
 
+    logger.info("Reports generated successfully: %s", [str(p) for p in outputs])
     preview_lines = [_preview_report_text(text_report)]
     if record:
         preview_lines.insert(0, f"Record ID: {record.get('id')}")
@@ -587,6 +612,7 @@ def export(
     sort: str = typer.Option("Date (Newest)", "--sort", help="Sort order for the export set."),
     limit: int = typer.Option(0, "--limit", min=0, help="Maximum records to export. 0 means no limit."),
 ) -> None:
+    logger.info("Export command invoked (format=%s, output=%s, limit=%s)", format_name, output, limit)
     try:
         rows = _history_rows(limit=limit or 0, query=query, file_type=file_type, date_filter=date_filter, sort=sort)
     except Exception as error:
@@ -631,11 +657,14 @@ def export(
 
     try:
         _write_export_file(dataframe, output_path, format_normalized)
+        logger.info("Export completed successfully: %d records exported to %s", len(dataframe), output_path)
     except Exception as error:
+        logger.exception("Export failed for %s: %s", output_path, error)
         _print_error(str(error))
         raise typer.Exit(code=1) from error
 
     console.print(summary_panel("Export Complete", [f"Rows exported: {len(dataframe)}", f"Output: {output_path}"], style="green"))
+
 
 
 @history_app.callback(invoke_without_command=True)
@@ -695,6 +724,7 @@ def config(ctx: typer.Context) -> None:
     if ctx.invoked_subcommand is not None:
         return
     db_path = Path(db_core.db_manager.db_path)
+    log_file_path = get_log_file_path()
     console.print(
         summary_panel(
             "Configuration",
@@ -702,12 +732,64 @@ def config(ctx: typer.Context) -> None:
                 f"Version: {APP_VERSION}",
                 f"Project root: {PROJECT_ROOT}",
                 f"Database path: {db_path}",
+                f"Log file path: {log_file_path}",
                 f"Python: {sys.executable}",
                 f"TRACELENS_DB_PATH: {os.getenv('TRACELENS_DB_PATH', '<not set>')}",
+                f"TRACELENS_LOG_LEVEL: {os.getenv('TRACELENS_LOG_LEVEL', '<not set>')}",
             ],
             style="bright_cyan",
         )
     )
+
+
+@app.command("logs")
+def show_logs(
+    lines: int = typer.Option(50, "--lines", "-n", help="Number of recent log lines to display."),
+    clear: bool = typer.Option(False, "--clear", help="Clear log file and in-memory buffer."),
+    path: bool = typer.Option(False, "--path", "-p", help="Print path to the active log file."),
+) -> None:
+    """Inspect recent application logs, view log path, or clear logs."""
+    log_path = get_log_file_path()
+    if path:
+        console.print(str(log_path))
+        return
+    if clear:
+        logger.info("Clearing logs via CLI command.")
+        if clear_logs():
+            console.print(summary_panel("Logs", ["Log buffer and file cleared."], style="green"))
+        else:
+            _print_error("Failed to clear log file.")
+        return
+
+
+    recent = get_recent_logs(max_entries=lines)
+    if not recent:
+        console.print(
+            summary_panel(
+                "TraceLens Logs",
+                [f"Log file: {log_path}", "No log entries found in buffer or file."],
+                style="yellow",
+            )
+        )
+        return
+
+    console.print(
+        summary_panel(
+            "TraceLens Logs",
+            [f"Log file: {log_path}", f"Showing last {len(recent)} entries:"] + recent,
+            style="bright_cyan",
+        )
+    )
+
+
+@config_app.command("logs")
+def config_logs(
+    lines: int = typer.Option(50, "--lines", "-n", help="Number of recent log lines to display."),
+    clear: bool = typer.Option(False, "--clear", help="Clear log file and in-memory buffer."),
+    path: bool = typer.Option(False, "--path", "-p", help="Print path to the active log file."),
+) -> None:
+    """Inspect application logs from config submenu."""
+    show_logs(lines=lines, clear=clear, path=path)
 
 
 @config_app.command("optimize")
@@ -717,6 +799,7 @@ def config_optimize() -> None:
         return
     _print_error("Failed to optimize the database.")
     raise typer.Exit(code=1)
+
 
 
 def _run_gui_main() -> None:

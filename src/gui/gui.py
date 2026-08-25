@@ -23,6 +23,7 @@ from tkinter import (
     RIGHT,
     SOLID,
     TOP,
+    BooleanVar,
     Button,
     Canvas,
     Checkbutton,
@@ -43,14 +44,28 @@ from tkinter import (
     scrolledtext,
     ttk,
 )
+from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from src.config.logging_config import (
+    add_log_listener,
+    clear_logs,
+    get_log_file_path,
+    get_logger,
+    get_recent_logs,
+    remove_log_listener,
+    setup_logging,
+)
+
+logger = get_logger("gui")
+
 # pyrefly: ignore [missing-import]
 from src.core.database import db
 from src.core.reports import report
+
 
 # Try importing extractor module for metadata extraction
 try:
@@ -197,6 +212,7 @@ class MetadataAnalyzerApp:
 
         self.root.geometry(f"{self.window_width}x{self.window_height}+{self.x_position}+{self.y_position}")
         self.root.resizable(True, True)
+        logger.info("TraceLens main GUI window initialized (%dx%d)", self.window_width, self.window_height)
 
         logo_path = self._resource_path("Metadata.png")
         if os.path.exists(logo_path):
@@ -446,6 +462,7 @@ class MetadataAnalyzerApp:
     # ------------------------------------------------------------------
     def menu_new_project(self) -> None:
         if messagebox.askyesno("New Project", "Start a new project? This will clear current data."):
+            logger.info("User initiated New Project (clearing active workspace)")
             self.file_path = None
             self.extracted_metadata = {}
             self.risk_analysis = None
@@ -467,11 +484,14 @@ class MetadataAnalyzerApp:
                     self.extracted_metadata = imported_data
                     self.file_path = imported_data.get("File Path", filepath)
                     self._display_extracted_metadata(self.extracted_metadata, self.file_path, None)
+                    logger.info("Imported metadata from %s (%d fields)", filepath, len(imported_data))
                     self.set_status(f"Imported metadata from {os.path.basename(filepath)}")
                     messagebox.showinfo("Success", "Metadata imported successfully.")
                 else:
+                    logger.warning("Failed to import metadata from %s: Invalid format", filepath)
                     messagebox.showerror("Error", "Invalid metadata format.")
             except Exception as e:
+                logger.error("Import error from %s: %s", filepath, e)
                 messagebox.showerror("Import Error", f"Failed to import: {str(e)}")
 
     def menu_export_results(self) -> None:
@@ -492,13 +512,16 @@ class MetadataAnalyzerApp:
                     else:
                         for key, value in self.extracted_metadata.items():
                             f.write(f"{key}: {value}\n")
+                logger.info("Exported metadata results to: %s", filepath)
                 self.set_status(f"Exported to {os.path.basename(filepath)}")
                 messagebox.showinfo("Success", "Metadata exported successfully.")
             except Exception as e:
+                logger.error("Failed to export metadata to %s: %s", filepath, e)
                 messagebox.showerror("Export Error", f"Failed to export: {str(e)}")
 
     def menu_clear_all_data(self) -> None:
         if messagebox.askyesno("Clear Data", "Clear all extracted metadata?"):
+            logger.info("Cleared active metadata from memory")
             self.extracted_metadata = {}
             self.file_path = None
             self.risk_analysis = None
@@ -519,16 +542,20 @@ class MetadataAnalyzerApp:
             text = "\n".join([f"{k}: {v}" for k, v in self.extracted_metadata.items()])
             self.root.clipboard_clear()
             self.root.clipboard_append(text)
+            logger.info("Copied %d metadata fields to clipboard", len(self.extracted_metadata))
             self.set_status("Metadata copied to clipboard")
         except Exception as e:
+            logger.error("Failed to copy metadata to clipboard: %s", e)
             messagebox.showerror("Error", f"Failed to copy: {str(e)}")
 
     def menu_refresh_all(self) -> None:
         try:
+            logger.info("Refreshing workspace data and history")
             if callable(self.history_refresh):
                 self.history_refresh()
             self.set_status("Data refreshed")
         except Exception as e:
+            logger.error("Failed to refresh: %s", e)
             messagebox.showerror("Error", f"Failed to refresh: {str(e)}")
 
     def menu_backup_database(self) -> None:
@@ -544,19 +571,23 @@ class MetadataAnalyzerApp:
             )
             if backup_path:
                 shutil.copy2("metadata.db", backup_path)
+                logger.info("Database backed up successfully to: %s", backup_path)
                 messagebox.showinfo("Success", f"Database backed up to:\n{backup_path}")
                 self.set_status("Database backed up successfully")
         except Exception as e:
+            logger.error("Database backup failed: %s", e)
             messagebox.showerror("Backup Error", f"Failed to backup database: {str(e)}")
 
     def menu_clear_history(self) -> None:
         if messagebox.askyesno("Clear History", "Delete all metadata history? This cannot be undone."):
             if db and db.clear_metadata():
+                logger.info("Cleared all metadata history records from database")
                 messagebox.showinfo("Success", "History cleared successfully.")
                 if callable(self.history_refresh):
                     self.history_refresh()
                 self.set_status("History cleared")
             else:
+                logger.error("Failed to clear history from database")
                 messagebox.showerror("Error", "Failed to clear history.")
 
     def menu_show_about(self) -> None:
@@ -1018,6 +1049,253 @@ class MetadataAnalyzerApp:
         )
         messagebox.showinfo("Contact Support", support_text)
 
+    def menu_view_logs(self) -> None:
+        """Display real-time application logs viewer window with syntax coloring and filtering."""
+        logger.info("Opening Application Logs viewer")
+        log_window = Toplevel(self.root)
+        log_window.title("Application Logs - TraceLens")
+        log_window.geometry("860x600")
+        log_window.minsize(700, 450)
+        log_window.config(bg="#f5f7fa")
+        log_window.transient(self.root)
+
+        header_frame = Frame(log_window, bg="#0066cc", height=65)
+        header_frame.pack(fill=X)
+        header_frame.pack_propagate(False)
+
+        title_sub_frame = Frame(header_frame, bg="#0066cc")
+        title_sub_frame.pack(side=LEFT, padx=20, pady=10)
+
+        Label(
+            title_sub_frame,
+            text="Application Event Logs",
+            font=("Segoe UI", 15, "bold"),
+            bg="#0066cc",
+            fg="white",
+        ).pack(anchor="w")
+
+        Label(
+            title_sub_frame,
+            text="Real-time activity, operations, and diagnostic events",
+            font=("Segoe UI", 9),
+            bg="#0066cc",
+            fg="#d0e5ff",
+        ).pack(anchor="w")
+
+        log_path = get_log_file_path()
+        path_label = Label(
+            header_frame,
+            text=f"Log: {log_path}",
+            font=("Segoe UI", 9),
+            bg="#0066cc",
+            fg="#d0e5ff",
+        )
+        path_label.pack(side=RIGHT, padx=20, pady=15)
+
+        # Toolbar Frame for filters and search
+        toolbar_frame = Frame(log_window, bg="#eef2f7", height=42)
+        toolbar_frame.pack(fill=X, padx=15, pady=(8, 0))
+
+        Label(toolbar_frame, text="Level:", font=("Segoe UI", 9, "bold"), bg="#eef2f7", fg="#333333").pack(
+            side=LEFT, padx=(5, 4), pady=6
+        )
+        level_filter_var = StringVar(value="ALL")
+        level_combo = ttk.Combobox(
+            toolbar_frame,
+            textvariable=level_filter_var,
+            values=["ALL", "DEBUG", "INFO", "WARNING", "ERROR"],
+            state="readonly",
+            width=10,
+            font=("Segoe UI", 9),
+        )
+        level_combo.pack(side=LEFT, padx=(0, 15), pady=6)
+
+        Label(toolbar_frame, text="Filter:", font=("Segoe UI", 9, "bold"), bg="#eef2f7", fg="#333333").pack(
+            side=LEFT, padx=(0, 4), pady=6
+        )
+        search_filter_var = StringVar(value="")
+        search_entry = ttk.Entry(toolbar_frame, textvariable=search_filter_var, width=25, font=("Segoe UI", 9))
+        search_entry.pack(side=LEFT, padx=(0, 15), pady=6)
+
+        auto_scroll_var = BooleanVar(value=True)
+        auto_scroll_chk = ttk.Checkbutton(
+            toolbar_frame,
+            text="Auto-scroll",
+            variable=auto_scroll_var,
+        )
+        auto_scroll_chk.pack(side=LEFT, padx=(0, 10), pady=6)
+
+        content_frame = Frame(log_window, bg="#ffffff")
+        content_frame.pack(fill=BOTH, expand=True, padx=15, pady=(8, 10))
+
+        log_text = scrolledtext.ScrolledText(
+            content_frame,
+            wrap="none",
+            font=("Consolas", 10),
+            bg="#1e1e1e",
+            fg="#d4d4d4",
+            insertbackground="white",
+            selectbackground="#264f78",
+            selectforeground="#ffffff",
+        )
+        log_text.pack(fill=BOTH, expand=True)
+
+        # Configure syntax tags
+        log_text.tag_configure("tag_time", foreground="#569cd6")
+        log_text.tag_configure("tag_info", foreground="#4ec9b0", font=("Consolas", 10, "bold"))
+        log_text.tag_configure("tag_warning", foreground="#ce9178", font=("Consolas", 10, "bold"))
+        log_text.tag_configure("tag_error", foreground="#f44747", font=("Consolas", 10, "bold"))
+        log_text.tag_configure("tag_critical", foreground="#c586c0", font=("Consolas", 10, "bold"))
+        log_text.tag_configure("tag_debug", foreground="#808080")
+        log_text.tag_configure("tag_module", foreground="#9cdcfe")
+        log_text.tag_configure("tag_msg", foreground="#d4d4d4")
+        log_text.tag_configure("tag_placeholder", foreground="#6e7681", font=("Consolas", 10, "italic"))
+
+        import re
+        log_line_regex = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\s+\[(\w+)\]\s+\[(.*?)\]\s+(.*)$")
+
+        LEVEL_MAP = {"DEBUG": 10, "INFO": 20, "WARNING": 30, "ERROR": 40, "CRITICAL": 50}
+
+        def should_include_entry(line: str) -> bool:
+            """Check if a log entry matches active level and query filters."""
+            filter_level = level_filter_var.get().upper()
+            search_query = search_filter_var.get().strip().lower()
+
+            if filter_level != "ALL":
+                m = log_line_regex.match(line)
+                if m:
+                    line_level = m.group(2).upper()
+                    min_lvl = LEVEL_MAP.get(filter_level, 0)
+                    cur_lvl = LEVEL_MAP.get(line_level, 0)
+                    if cur_lvl < min_lvl:
+                        return False
+                elif f"[{filter_level}]" not in line:
+                    return False
+
+            if search_query and search_query not in line.lower():
+                return False
+
+            return True
+
+        def insert_formatted_line(line: str):
+            """Parse and insert a formatted log entry into the ScrolledText widget."""
+            m = log_line_regex.match(line)
+            if m:
+                timestamp, level, module_name, message = m.groups()
+                log_text.insert("end", timestamp, "tag_time")
+                log_text.insert("end", " [")
+                lvl_tag = f"tag_{level.lower()}"
+                if lvl_tag not in ("tag_info", "tag_warning", "tag_error", "tag_critical", "tag_debug"):
+                    lvl_tag = "tag_msg"
+                log_text.insert("end", level, lvl_tag)
+                log_text.insert("end", "] [")
+                log_text.insert("end", module_name, "tag_module")
+                log_text.insert("end", "] ")
+                log_text.insert("end", message + "\n", "tag_msg")
+            else:
+                log_text.insert("end", line + "\n", "tag_msg")
+
+        def refresh_logs():
+            """Reload and render recent logs matching filters."""
+            log_text.config(state=NORMAL)
+            log_text.delete("1.0", "end")
+            entries = get_recent_logs(max_entries=1000)
+            matching_entries = [e for e in entries if should_include_entry(e)]
+
+            if matching_entries:
+                for entry in matching_entries:
+                    insert_formatted_line(entry)
+                if auto_scroll_var.get():
+                    log_text.see("end")
+            else:
+                if entries:
+                    log_text.insert("end", "[No log entries match the current filter]\n", "tag_placeholder")
+                else:
+                    log_text.insert("end", "[TraceLens Logging Initialized - Waiting for application activity...]\n", "tag_placeholder")
+
+            log_text.config(state=DISABLED)
+
+        # Trigger refresh on filter changes
+        level_combo.bind("<<ComboboxSelected>>", lambda e: refresh_logs())
+        search_filter_var.trace_add("write", lambda *args: refresh_logs())
+
+        # Live log streaming callback
+        def on_new_log_record(_record: Any, formatted_msg: str):
+            """Handle streaming of new log messages directly into the UI safely."""
+            def _append_to_ui():
+                try:
+                    if not log_window.winfo_exists():
+                        remove_log_listener(on_new_log_record)
+                        return
+                    if should_include_entry(formatted_msg):
+                        log_text.config(state=NORMAL)
+                        current_content = log_text.get("1.0", "end").strip()
+                        if current_content.startswith("[TraceLens Logging Initialized") or current_content.startswith("[No log entries match"):
+                            log_text.delete("1.0", "end")
+                        insert_formatted_line(formatted_msg)
+                        if auto_scroll_var.get():
+                            log_text.see("end")
+                        log_text.config(state=DISABLED)
+                except Exception:
+                    pass
+
+            try:
+                if log_window.winfo_exists():
+                    log_window.after_idle(_append_to_ui)
+                else:
+                    remove_log_listener(on_new_log_record)
+            except Exception:
+                remove_log_listener(on_new_log_record)
+
+        add_log_listener(on_new_log_record)
+
+        def cleanup_listener():
+            remove_log_listener(on_new_log_record)
+            try:
+                if log_window.winfo_exists():
+                    log_window.destroy()
+            except Exception:
+                pass
+
+        log_window.protocol("WM_DELETE_WINDOW", cleanup_listener)
+        log_window.bind("<Destroy>", lambda e: remove_log_listener(on_new_log_record) if e.widget == log_window else None)
+
+        refresh_logs()
+
+        button_frame = Frame(log_window, bg="#f5f7fa")
+        button_frame.pack(fill=X, padx=15, pady=(0, 15))
+
+        def copy_all():
+            entries = get_recent_logs(max_entries=1000)
+            matching_entries = [e for e in entries if should_include_entry(e)]
+            if matching_entries:
+                self.root.clipboard_clear()
+                self.root.clipboard_append("\n".join(matching_entries))
+                self.set_status("Logs copied to clipboard")
+                messagebox.showinfo("Copied", f"{len(matching_entries)} log entries copied to clipboard.")
+            else:
+                messagebox.showinfo("Copied", "No log entries to copy.")
+
+        def clear_all():
+            if messagebox.askyesno("Clear Logs", "Clear the log file and memory buffer?"):
+                clear_logs()
+                logger.info("Application logs cleared by user")
+                refresh_logs()
+                self.set_status("Logs cleared")
+
+        def open_folder():
+            try:
+                if log_path and log_path.parent.exists():
+                    os.startfile(str(log_path.parent))
+            except Exception as err:
+                messagebox.showerror("Error", f"Failed to open log folder: {err}")
+
+        ttk.Button(button_frame, text="Refresh", command=refresh_logs).pack(side=LEFT, padx=5)
+        ttk.Button(button_frame, text="Copy Logs", command=copy_all).pack(side=LEFT, padx=5)
+        ttk.Button(button_frame, text="Clear Logs", command=clear_all).pack(side=LEFT, padx=5)
+        ttk.Button(button_frame, text="Open Log Folder", command=open_folder).pack(side=LEFT, padx=5)
+        ttk.Button(button_frame, text="Close", command=cleanup_listener).pack(side=RIGHT, padx=5)
+
     # ------------------------------------------------------------------
     # Keyboard shortcuts setup
     # ------------------------------------------------------------------
@@ -1108,6 +1386,7 @@ class MetadataAnalyzerApp:
         tools_menu.add_command(label="Clear History", command=self.menu_clear_history)
         tools_menu.add_separator()
         tools_menu.add_command(label="Statistics Dashboard", command=self.menu_statistics)
+        tools_menu.add_command(label="Application Logs", command=self.menu_view_logs)
 
         help_menu = Menu(
             menu, tearoff=0, bg="#f5f7fa", fg="#1a1a1a", activebackground="#0066cc", activeforeground="#ffffff"
@@ -1117,12 +1396,15 @@ class MetadataAnalyzerApp:
         help_menu.add_command(label="Getting Started", command=self.menu_show_documentation)
         help_menu.add_command(label="Keyboard Shortcuts", command=self.menu_show_shortcuts, accelerator="Ctrl+?")
         help_menu.add_separator()
+        help_menu.add_command(label="View Application Logs", command=self.menu_view_logs)
+        help_menu.add_separator()
         help_menu.add_command(label="Check for Updates", command=self.menu_check_updates)
         help_menu.add_separator()
         help_menu.add_command(label="About TraceLens", command=self.menu_show_about)
         help_menu.add_command(label="Credits", command=self.menu_credits)
         help_menu.add_command(label="Report an Issue", command=self.menu_report_issue)
         help_menu.add_command(label="Contact Support", command=self.menu_contact_support)
+
 
 
 # Public entrypoint to maintain existing API

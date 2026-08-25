@@ -11,6 +11,9 @@ from reportlab.lib.units import inch
 import os
 import sys
 import tempfile
+from src.config.logging_config import get_logger
+
+logger = get_logger("core.report")
 
 
 class MetadataReporter:
@@ -18,6 +21,7 @@ class MetadataReporter:
 
     def __init__(self):
         pass
+
 
     @staticmethod
     def resource_path(relative_path):

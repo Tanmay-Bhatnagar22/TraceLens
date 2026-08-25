@@ -3,6 +3,9 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Callable
+from src.config.logging_config import get_logger
+
+logger = get_logger("core.risk")
 
 
 @dataclass
@@ -94,6 +97,15 @@ class PrivacyForensicAnalyzer:
         if not reasons:
             reasons = ["No high-sensitivity metadata indicators were detected."]
 
+        logger.debug(
+            "Risk analysis for %s: score=%d (%s), matched_rules=%d, anomalies=%d",
+            file_path or "unnamed",
+            score,
+            level,
+            len(matched_rules),
+            len(anomalies),
+        )
+
         return {
             "file_path": file_path or "",
             "file_name": os.path.basename(file_path) if file_path else "",
@@ -107,6 +119,7 @@ class PrivacyForensicAnalyzer:
         }
 
     def analyze_batch(self, entries: list[dict[str, Any]]) -> dict[str, Any]:
+
         """Analyze a list of file entries and build folder-level summary.
 
         Each entry expects keys: ``file_path`` and ``metadata``.

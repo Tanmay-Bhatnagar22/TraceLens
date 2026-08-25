@@ -64,13 +64,17 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from src.config.logging_config import get_logger
 from src.core.database import db
+
+logger = get_logger("gui.statistics")
 
 # Try importing risk analyzer module for risk metrics
 try:
     from src.core.risk import risk_analyzer
 except ImportError:  # pragma: no cover - optional dependency
     risk_analyzer = None
+
 
 
 def parse_size_to_bytes(size_str: str | int | float | None) -> int:
@@ -1799,6 +1803,7 @@ def open_statistics_dashboard(parent=None) -> StatisticsDashboard:
     Returns:
         StatisticsDashboard: The instantiated dashboard controller.
     """
+    logger.info("Opening Statistics & Analytics Dashboard")
     dashboard = StatisticsDashboard(parent=parent)
     dashboard.show()
     return dashboard

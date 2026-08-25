@@ -4,7 +4,10 @@ from PyPDF2 import PdfReader
 import mimetypes
 import os
 from typing import Any, Callable, Iterable
+from src.config.logging_config import get_logger
 from src.core.database import db
+
+logger = get_logger("core.extractor")
 
 
 class MetadataExtractor:
@@ -16,6 +19,7 @@ class MetadataExtractor:
 
     def __init__(self, db_client: db.MetadataDatabase | None = None) -> None:
         self.db_client = db_client or db.db_manager
+
 
     @staticmethod
     def _validate_file_path(file_path: str) -> tuple[bool, str]:
@@ -53,8 +57,10 @@ class MetadataExtractor:
             info = reader.metadata or {}
             meta_dict = {k[1:]: v for k, v in info.items()}
             meta_dict["Pages"] = len(reader.pages)
+            logger.info("PDF metadata extracted successfully for %s (%d pages)", file_path, len(reader.pages))
             return meta_dict
         except Exception as e:
+            logger.warning("PDF extraction failed for %s: %s", file_path, e)
             return {"Error": f"PDF extraction failed: {e}"}
 
     def extract_text_metadata(self, file_path: str) -> dict[str, Any]:
@@ -74,8 +80,10 @@ class MetadataExtractor:
             with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
                 lines = f.readlines()
             stat = os.stat(file_path)
+            logger.info("Text metadata extracted for %s (%d lines)", file_path, len(lines))
             return {"File Size (bytes)": stat.st_size, "Line Count": len(lines), "Encoding": "utf-8"}
         except Exception as e:
+            logger.warning("Text extraction failed for %s: %s", file_path, e)
             return {"Error": f"Text extraction failed: {e}"}
 
     def extract(self, file_path: str) -> dict[str, Any]:
@@ -92,6 +100,7 @@ class MetadataExtractor:
         """
         is_valid, error = self._validate_file_path(file_path)
         if not is_valid:
+            logger.debug("File validation failed for %s: %s", file_path, error)
             return {"Error": error}
 
         mime_type, _ = mimetypes.guess_type(file_path)
@@ -107,17 +116,21 @@ class MetadataExtractor:
         try:
             parser = createParser(file_path)
             if not parser:
+                logger.warning("No parser available for %s", file_path)
                 return {"Error": "Unable to parse the file (unsupported or corrupted)."}
             metadata = extractMetadata(parser)
             if not metadata:
+                logger.info("No metadata tags found in %s", file_path)
                 return {"Error": "No metadata found."}
             meta_dict = {}
             for item in metadata.exportPlaintext():
                 if ": " in item:
                     key, value = item.split(": ", 1)
                     meta_dict[key.strip()] = value.strip()
+            logger.info("Hachoir extracted %d fields for %s", len(meta_dict), file_path)
             return meta_dict
         except Exception as e:
+            logger.warning("Hachoir extraction error on %s: %s", file_path, e)
             return {"Error": f"An error occurred: {e}"}
 
     def extract_and_store(self, file_path: str) -> tuple[dict[str, Any], Any]:
@@ -141,11 +154,14 @@ class MetadataExtractor:
 
         try:
             db_row = self.db_client.insert_metadata(file_path, metadata)
+            logger.info("Stored metadata in DB for %s (row id=%s)", file_path, db_row[0] if db_row else None)
         except Exception as exc:
+            logger.error("Failed to persist metadata for %s: %s", file_path, exc)
             metadata = {**metadata, "Error": f"Failed to persist metadata: {exc}"}
             db_row = None
 
         return metadata, db_row
+
 
     def batch_extract(self, file_paths: Iterable[str], progress_callback: Callable[[str, float], None] | None = None) -> dict[str, Any]:
         """Extract metadata from multiple files with optional progress reporting.

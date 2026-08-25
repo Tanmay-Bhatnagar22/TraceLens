@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from src.config.logging_config import get_logger
 from src.core.database import db as db_module
 from src.core.editor import editor as editor_module
 from src.core.extractor import extractor as extractor_module
@@ -16,6 +17,8 @@ from src.core.services.extraction_service import ExtractionService
 from src.core.services.history_service import HistoryService
 from src.core.services.report_service import ReportService
 from src.core.services.risk_service import RiskAnalysisService
+
+logger = get_logger("core.services.container")
 
 
 class ServiceContainer:
@@ -30,6 +33,8 @@ class ServiceContainer:
         editor: editor_module.MetadataEditor | None = None,
         reporter: report_module.MetadataReporter | None = None,
     ) -> None:
+        logger.debug("Initializing ServiceContainer (custom db_path=%s)", db_path)
+
         # Core domain / infrastructure components
         if database is not None:
             self.database = database

@@ -46,6 +46,10 @@ try:
 except ImportError:  # pragma: no cover - optional dependency
     risk_analyzer = None
 
+from src.config.logging_config import get_logger
+
+logger = get_logger("gui.editor")
+
 
 class EditorTab:
     """Component managing the Editor tab UI and metadata modification workflows."""
@@ -181,6 +185,7 @@ class EditorTab:
             return
 
         if self.app.extracted_metadata and isinstance(self.app.extracted_metadata, dict):
+            logger.info("Opening editor with %d metadata fields for '%s'", len(self.app.extracted_metadata), os.path.basename(self.app.file_path or "file"))
             self.populate_editor_fields(self.app.extracted_metadata)
             if self.app.editor_status:
                 self.app.editor_status.config(text="", fg="#555555")
@@ -195,6 +200,7 @@ class EditorTab:
             return
 
         try:
+            logger.info("Saving metadata changes for: '%s'", os.path.basename(self.app.file_path))
             edited_metadata = {}
             headers = {}
 
@@ -221,11 +227,13 @@ class EditorTab:
                 return
 
             if not editor:
+                logger.error("Editor module unavailable for saving")
                 messagebox.showerror("Error", "Editor module not available.")
                 return
 
             valid, error_msg = editor.validate_metadata({"metadata": edited_metadata, "headers": headers})
             if not valid:
+                logger.warning("Editor validation failed for '%s': %s", os.path.basename(self.app.file_path), error_msg)
                 if self.app.editor_status:
                     self.app.editor_status.config(text=error_msg, fg="#dc3545")
                 messagebox.showerror("Validation Error", error_msg)
@@ -236,6 +244,7 @@ class EditorTab:
                     self.app.file_path, {"metadata": edited_metadata, "headers": headers}
                 )
                 if not db_success:
+                    logger.error("Database update error for '%s': %s", os.path.basename(self.app.file_path), db_message)
                     if self.app.editor_status:
                         self.app.editor_status.config(text=db_message, fg="#dc3545")
                     messagebox.showerror("Database Error", db_message)
@@ -261,10 +270,12 @@ class EditorTab:
             self.app._render_risk_analysis(self.app.risk_analysis)
 
             if file_success:
+                logger.info("Successfully updated metadata in database and file for '%s'", os.path.basename(self.app.file_path))
                 if self.app.editor_status:
                     self.app.editor_status.config(text="Saved to database and file", fg="#28a745")
                 messagebox.showinfo("Success", "✓ Database updated\n✓ File metadata updated")
             else:
+                logger.info("Updated metadata in database (file write: %s) for '%s'", file_message, os.path.basename(self.app.file_path))
                 if self.app.editor_status:
                     self.app.editor_status.config(text="Saved to database only", fg="#ff8c00")
                 messagebox.showwarning("Partial Success", f"✓ Database updated\n⚠ File: {file_message}")
@@ -276,6 +287,7 @@ class EditorTab:
                 pass
 
         except Exception as e:
+            logger.error("Failed to save editor changes for '%s': %s", os.path.basename(self.app.file_path or "file"), e)
             error_msg = f"Failed to save: {str(e)}"
             if self.app.editor_status:
                 self.app.editor_status.config(text=error_msg, fg="#dc3545")
@@ -291,10 +303,12 @@ class EditorTab:
 
         if messagebox.askyesno("Cancel Changes", "Discard all changes and reload original metadata?"):
             try:
+                logger.info("User discarded editor modifications for '%s'", os.path.basename(self.app.file_path))
                 self.populate_editor_fields(self.app.extracted_metadata)
                 if self.app.editor_status:
                     self.app.editor_status.config(text="Changes discarded", fg="#555555")
             except Exception as e:
+                logger.error("Failed to reload editor fields: %s", e)
                 messagebox.showerror("Error", f"Failed to reload: {str(e)}")
 
     def add_metadata_field(self) -> None:

@@ -47,6 +47,10 @@ try:
 except ImportError:  # pragma: no cover - optional dependency
     risk_analyzer = None
 
+from src.config.logging_config import get_logger
+
+logger = get_logger("gui.preview")
+
 
 class PreviewTab:
     """Component managing the Report Preview tab UI, PDF rendering, and zoom operations."""
@@ -208,9 +212,11 @@ class PreviewTab:
             messagebox.showwarning("No Data", "Please extract metadata first before generating a report.")
             return
         if not report:
+            logger.error("Report generation failed: Reports module not available")
             messagebox.showerror("Error", "Reports module not available.")
             return
         try:
+            logger.info("Generating report for: '%s'", os.path.basename(self.app.file_path))
             if risk_analyzer and isinstance(self.app.extracted_metadata, dict):
                 self.app.risk_analysis = risk_analyzer.analyze_metadata(
                     self.app.extracted_metadata,
@@ -226,8 +232,10 @@ class PreviewTab:
                 batch_summary=self.app.risk_batch_summary,
             )
             self.update_report_preview(metadata_text)
+            logger.info("Generated report preview for '%s' (%d characters)", os.path.basename(self.app.file_path), len(metadata_text))
             self.app.set_status("Report preview ready")
         except Exception as e:
+            logger.error("Failed to generate report for '%s': %s", os.path.basename(self.app.file_path or "file"), e)
             self.app.set_status(f"Report generation error: {str(e)}")
             messagebox.showerror("Report Error", f"Failed to generate report: {str(e)}")
 
@@ -379,27 +387,35 @@ class PreviewTab:
     def save_report_from_preview(self) -> None:
         """Save the current report preview to a PDF file."""
         if not report:
+            logger.error("Reports module not available for saving")
             messagebox.showerror("Error", "Reports module not available.")
             return
         try:
             if not self.app.report_last_text.strip():
                 messagebox.showwarning("No Data", "There is no report content to save.")
                 return
+            logger.info("Exporting report preview for '%s' to PDF...", os.path.basename(self.app.file_path or "file"))
             report.save_metadata(self.app.report_last_text)
+            logger.info("Report export dialog completed")
         except Exception as e:
+            logger.error("Failed to save report: %s", e)
             messagebox.showerror("Save Error", f"Failed to save report: {str(e)}")
 
     def print_report_from_preview(self) -> None:
         """Send the current report preview to the default printer."""
         if not report:
+            logger.error("Reports module not available for printing")
             messagebox.showerror("Error", "Reports module not available.")
             return
         try:
             if not self.app.report_last_text.strip():
                 messagebox.showwarning("No Data", "There is no report content to print.")
                 return
+            logger.info("Sending report for '%s' to printer...", os.path.basename(self.app.file_path or "file"))
             report.print_metadata_report(self.app.report_last_text)
+            logger.info("Print job sent to system spooler")
         except Exception as e:
+            logger.error("Failed to print report: %s", e)
             messagebox.showerror("Print Error", f"Failed to print report: {str(e)}")
 
     def on_canvas_configure(self, event=None) -> None:

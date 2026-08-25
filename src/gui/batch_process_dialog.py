@@ -56,6 +56,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from src.config.logging_config import get_logger
+
+logger = get_logger("gui.batch")
+
 # Optional core dependencies
 try:
     from src.core.extractor import extractor
@@ -71,6 +75,7 @@ try:
     from src.core.database import db
 except ImportError:  # pragma: no cover
     db = None
+
 
 
 def format_file_size(size_in_bytes: int | float) -> str:
@@ -1367,6 +1372,7 @@ class BatchProcessDialog:
 
 def open_batch_process_dialog(parent: Any, app: Any = None) -> BatchProcessDialog:
     """Convenience function to instantiate and show the BatchProcessDialog."""
+    logger.info("Opening Batch Process & Folder Extraction dialog")
     dialog = BatchProcessDialog(parent, app)
     dialog.show()
     return dialog

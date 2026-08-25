@@ -6,8 +6,11 @@ import json
 from datetime import datetime, timedelta
 from typing import Any
 
+from src.config.logging_config import get_logger
 from src.core.database import db as db_module
 from src.models.metadata import MetadataRecord
+
+logger = get_logger("core.services.history")
 
 
 class HistoryService:
@@ -18,6 +21,7 @@ class HistoryService:
         database: db_module.MetadataDatabase | None = None,
     ) -> None:
         self.database = database or db_module.db_manager
+
 
     def get_record_by_id(self, record_id: int) -> MetadataRecord | None:
         """Fetch a single record by its primary key ID."""

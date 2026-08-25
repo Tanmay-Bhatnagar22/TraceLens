@@ -8,9 +8,12 @@ Supports PDF, images (PNG/JPEG), audio (MP3), and text files.
 import json
 import re
 from datetime import datetime
-from src.core.database import db
 import os
 import shutil
+from src.config.logging_config import get_logger
+from src.core.database import db
+
+logger = get_logger("core.editor")
 
 
 class MetadataEditor:
@@ -18,6 +21,7 @@ class MetadataEditor:
 
     def __init__(self, db_client: db.MetadataDatabase | None = None) -> None:
         self.db_client = db_client or db.db_manager
+
 
     def parse_editor_text(self, text: str) -> dict:
         """Parse metadata text from editor into structured data.
@@ -87,10 +91,12 @@ class MetadataEditor:
         try:
             valid, error = self.validate_metadata(parsed_data)
             if not valid:
+                logger.warning("Metadata validation failed for %s: %s", file_path, error)
                 return False, error
 
             latest = self.db_client.fetch_latest_by_path(file_path)
             if not latest:
+                logger.warning("No existing record found in DB for %s", file_path)
                 return False, "No existing record found for this file"
 
             updated_metadata = parsed_data['metadata']
@@ -105,9 +111,11 @@ class MetadataEditor:
                 ''', (json.dumps(updated_metadata), latest[0]))
                 conn.commit()
 
+            logger.info("Updated metadata in DB for %s (record ID %s)", file_path, latest[0])
             return True, "Metadata updated successfully"
 
         except Exception as e:
+            logger.error("Error saving edited metadata for %s: %s", file_path, e)
             return False, f"Error saving metadata: {str(e)}"
 
     def get_editable_text(self, file_path: str, metadata: dict) -> str:
@@ -189,9 +197,12 @@ class MetadataEditor:
             tuple: (success, message) - Boolean status and informational message.
         """
         if not os.path.exists(file_path):
+            logger.warning("Target file for metadata write does not exist: %s", file_path)
             return False, "File not found"
 
         ext = os.path.splitext(file_path)[1].lower()
+        logger.info("Writing metadata back to file %s (format: %s)", file_path, ext)
+
 
         try:
             if ext == '.pdf':

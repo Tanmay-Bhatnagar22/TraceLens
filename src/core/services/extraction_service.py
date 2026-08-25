@@ -8,9 +8,12 @@ import time
 from datetime import datetime
 from typing import Any, Callable, Iterable
 
+from src.config.logging_config import get_logger
 from src.core.database import db as db_module
 from src.core.extractor import extractor as extractor_module
 from src.models.metadata import BatchExtractionResult, ExtractionResult
+
+logger = get_logger("core.services.extraction")
 
 
 class ExtractionService:
@@ -30,6 +33,7 @@ class ExtractionService:
     ) -> None:
         self.database = database or db_module.db_manager
         self.extractor = extractor or extractor_module.MetadataExtractor(db_client=self.database)
+
 
     def validate_file(self, file_path: str) -> tuple[bool, str]:
         """Validate that a target path exists and is a readable file."""

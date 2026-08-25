@@ -44,6 +44,10 @@ try:
 except ImportError:  # pragma: no cover - optional dependency
     risk_analyzer = None
 
+from src.config.logging_config import get_logger
+
+logger = get_logger("gui.extractor")
+
 
 class ExtractorTab:
     """Component managing the Extractor tab UI and file extraction workflow."""
@@ -165,6 +169,8 @@ class ExtractorTab:
             self.app.file_path = selected_file
             self.app.extracted_metadata = {}
             self.app.risk_analysis = None
+            file_size = os.path.getsize(selected_file) if os.path.exists(selected_file) else 0
+            logger.info("Selected file: '%s' (Size: %d bytes)", selected_file, file_size)
             if self.app.progress_bar:
                 self.app.progress_bar.start()
                 if self.app.root:
@@ -188,10 +194,12 @@ class ExtractorTab:
             return
 
         if not extractor:
+            logger.error("Extractor module is unavailable")
             messagebox.showerror("Error", "Extractor module not available.")
             return
 
         try:
+            logger.info("Starting metadata extraction for: '%s'", self.app.file_path)
             if self.app.progress_bar:
                 self.app.progress_bar.start()
 
@@ -210,7 +218,12 @@ class ExtractorTab:
                             extracted_at=datetime.now().isoformat(sep=" ", timespec="seconds")
                         ),
                     )
-                except Exception:
+                    if self.app.risk_analysis:
+                        score = self.app.risk_analysis.get("risk_score", 0)
+                        level = self.app.risk_analysis.get("risk_level", "Unknown")
+                        logger.info("Privacy risk evaluation for '%s': Score %s/100 (%s)", os.path.basename(self.app.file_path), score, level)
+                except Exception as risk_err:
+                    logger.warning("Privacy risk analysis warning: %s", risk_err)
                     self.app.risk_analysis = None
             else:
                 self.app.risk_analysis = None
@@ -222,8 +235,12 @@ class ExtractorTab:
             self.app._render_risk_analysis(self.app.risk_analysis)
 
             if isinstance(self.app.extracted_metadata, dict) and "Error" not in self.app.extracted_metadata:
-                self.app.set_status(f"Successfully extracted {len(self.app.extracted_metadata)} metadata fields")
+                num_fields = len(self.app.extracted_metadata)
+                logger.info("Successfully extracted %d metadata fields from '%s'", num_fields, os.path.basename(self.app.file_path))
+                self.app.set_status(f"Successfully extracted {num_fields} metadata fields")
             else:
+                err_msg = self.app.extracted_metadata.get("Error") if isinstance(self.app.extracted_metadata, dict) else "Unknown"
+                logger.warning("Extraction completed with notice for '%s': %s", os.path.basename(self.app.file_path), err_msg)
                 self.app.set_status("Extraction completed")
 
             try:
@@ -235,6 +252,7 @@ class ExtractorTab:
         except Exception as e:
             if self.app.progress_bar:
                 self.app.progress_bar.stop()
+            logger.error("Extraction failed for '%s': %s", self.app.file_path, e)
             self.app.set_status(f"Extraction error: {str(e)}")
             messagebox.showerror("Extraction Error", f"Failed to extract metadata: {str(e)}")
 

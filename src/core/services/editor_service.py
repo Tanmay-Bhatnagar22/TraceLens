@@ -6,8 +6,11 @@ import os
 import shutil
 from typing import Any
 
+from src.config.logging_config import get_logger
 from src.core.database import db as db_module
 from src.core.editor import editor as editor_module
+
+logger = get_logger("core.services.editor")
 
 
 class MetadataEditorService:
@@ -20,6 +23,7 @@ class MetadataEditorService:
     ) -> None:
         self.database = database or db_module.db_manager
         self.editor = editor or editor_module.MetadataEditor(db_client=self.database)
+
 
     def parse_editor_text(self, text: str) -> dict[str, Any]:
         """Parse plain-text metadata from the editor into structured headers and metadata dicts."""

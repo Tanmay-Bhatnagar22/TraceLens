@@ -5,8 +5,11 @@ from __future__ import annotations
 import os
 from typing import Any, Iterable
 
+from src.config.logging_config import get_logger
 from src.core.risk import risk_analyzer as risk_module
 from src.models.risk import BatchRiskResult, RiskAssessment
+
+logger = get_logger("core.services.risk")
 
 
 class RiskAnalysisService:
@@ -17,6 +20,7 @@ class RiskAnalysisService:
         analyzer: risk_module.PrivacyForensicAnalyzer | None = None,
     ) -> None:
         self.analyzer = analyzer or risk_module.analyzer
+
 
     def analyze_metadata(
         self,

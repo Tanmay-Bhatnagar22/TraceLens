@@ -7,9 +7,12 @@ from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 from typing import Any
 
+from src.config.logging_config import get_logger
 from src.core.database import db as db_module
 from src.core.risk import risk_analyzer as risk_module
 from src.models.analytics import AnalyticsSummary
+
+logger = get_logger("core.services.analytics")
 
 
 class AnalyticsService:
@@ -22,6 +25,7 @@ class AnalyticsService:
     ) -> None:
         self.database = database or db_module.db_manager
         self.analyzer = analyzer or risk_module.analyzer
+
 
     @staticmethod
     def parse_size_to_bytes(size_str: str | int | float | None) -> int:

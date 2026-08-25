@@ -7,8 +7,11 @@ from typing import Any
 
 import pandas as pd
 
+from src.config.logging_config import get_logger
 from src.core.reports import report as report_module
 from src.models.reports import ReportConfig, ReportResult
+
+logger = get_logger("core.services.report")
 
 
 class ReportService:
@@ -19,6 +22,7 @@ class ReportService:
         reporter: report_module.MetadataReporter | None = None,
     ) -> None:
         self.reporter = reporter or report_module.reporter
+
 
     def generate_text_report(
         self,

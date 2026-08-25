@@ -4,7 +4,10 @@ import pandas as pd
 import json
 import os
 import tempfile
+from src.config.logging_config import get_logger
 from src.core.reports import report
+
+logger = get_logger("core.database")
 
 
 def _default_db_path() -> str:
@@ -40,7 +43,9 @@ class MetadataDatabase:
         db_dir = os.path.dirname(os.path.abspath(self.db_path))
         if db_dir:
             os.makedirs(db_dir, exist_ok=True)
+        logger.debug("Initializing MetadataDatabase at %s", self.db_path)
         self._ensure_tables()
+
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -145,6 +150,7 @@ class MetadataDatabase:
             )
             conn.commit()
             record_id = cursor.lastrowid
+            logger.debug("Inserted metadata record ID %s for %s", record_id, file_path)
             cursor.execute("SELECT * FROM metadata WHERE id=?", (record_id,))
             return cursor.fetchone()
 
@@ -199,18 +205,23 @@ class MetadataDatabase:
             return cursor.fetchall()
 
     def get_recent_records(self, limit: int = 10):
-        """Retrieve the most recent metadata records.
+        """Retrieve the most recently extracted metadata records.
         
         Args:
-            limit (int): Maximum number of records to return (default: 10).
+            limit (int): Maximum number of records to return. Defaults to 10.
             
         Returns:
-            list: List of metadata records sorted by extraction time (newest first).
+            list: List of tuples with the most recent metadata records.
         """
         with self._connect() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT * FROM metadata ORDER BY extracted_at DESC, id DESC LIMIT ?",
+                """
+                SELECT id, file_path, file_name, file_size_formatted, file_type, extracted_at, modified_on, full_metadata
+                FROM metadata
+                ORDER BY id DESC
+                LIMIT ?
+                """,
                 (limit,),
             )
             return cursor.fetchall()
@@ -240,9 +251,10 @@ class MetadataDatabase:
                 cursor = conn.cursor()
                 cursor.execute("DELETE FROM metadata")
                 conn.commit()
+            logger.info("Cleared all metadata records from database.")
             return True
         except Exception as e:
-            print(f"Error clearing metadata: {e}")
+            logger.error("Error clearing metadata: %s", e)
             return False
 
     def delete_record(self, record_id):
@@ -259,9 +271,14 @@ class MetadataDatabase:
                 cursor = conn.cursor()
                 cursor.execute("DELETE FROM metadata WHERE id=?", (record_id,))
                 conn.commit()
-                return cursor.rowcount > 0
+                deleted = cursor.rowcount > 0
+                if deleted:
+                    logger.info("Deleted record ID %s from database", record_id)
+                else:
+                    logger.warning("Record ID %s not found for deletion", record_id)
+                return deleted
         except Exception as e:
-            print(f"Error deleting record: {e}")
+            logger.error("Error deleting record %s: %s", record_id, e)
             return False
 
     def filter_and_search_data(self, search_term: str, file_type_filter: str, date_filter: str, sort_option: str):
@@ -410,8 +427,10 @@ class MetadataDatabase:
                     ),
                 )
                 conn.commit()
+            logger.info("Saved edited metadata for %s to database", file_path)
             return True, "Edited metadata saved to database."
         except Exception as e:
+            logger.error("DB save failed for %s: %s", file_path, e)
             return False, f"DB save failed: {str(e)}"
 
     def optimize_database(self):
@@ -425,10 +444,12 @@ class MetadataDatabase:
                 cursor = conn.cursor()
                 cursor.execute("PRAGMA optimize;")
                 conn.commit()
+            logger.info("Database optimization (PRAGMA optimize) completed.")
             return True
         except Exception as e:
-            print(f"Error optimizing database: {e}")
+            logger.error("Error optimizing database: %s", e)
             return False
+
 
 
 # Singleton instance and compatibility wrappers --------------------------------

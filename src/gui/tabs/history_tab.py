@@ -44,6 +44,10 @@ try:
 except ImportError:  # pragma: no cover - optional dependency
     risk_analyzer = None
 
+from src.config.logging_config import get_logger
+
+logger = get_logger("gui.history")
+
 
 class HistoryTab:
     """Component managing the History tab UI and database record interactions."""
@@ -294,8 +298,10 @@ class HistoryTab:
         record_id = record_values[-1]
         if messagebox.askyesno("Confirm Delete", f"Delete record ID: {record_id}?"):
             if db.delete_record(record_id):
+                logger.info("Deleted history record ID: %s", record_id)
                 messagebox.showinfo("Success", "Record deleted successfully.")
             else:
+                logger.error("Failed to delete history record ID: %s", record_id)
                 messagebox.showerror("Error", "Failed to delete record.")
             self.load_data()
 
@@ -305,8 +311,10 @@ class HistoryTab:
             return
         if messagebox.askyesno("Confirm Delete", "Delete all metadata records? This cannot be undone."):
             if db.clear_metadata():
+                logger.info("Deleted all metadata history records from database")
                 messagebox.showinfo("Success", "All records deleted.")
             else:
+                logger.error("Failed to clear metadata history records")
                 messagebox.showerror("Error", "Failed to delete records.")
             self.load_data()
 
@@ -318,7 +326,9 @@ class HistoryTab:
         if not data:
             messagebox.showwarning("No Data", "No records to export with current filters.")
             return
+        logger.info("Exporting %d history records as %s...", len(data), fmt.upper())
         db.export_data(fmt, data)
+        logger.info("History data exported successfully as %s", fmt.upper())
         messagebox.showinfo("Export", f"Exported data as {fmt.upper()}.")
 
     def on_tree_double_click(self, event: Any) -> None:
@@ -337,6 +347,7 @@ class HistoryTab:
         except Exception:
             row = None
         if not row:
+            logger.error("Could not load history record ID %s from database", record_id)
             messagebox.showerror("Load Error", "Could not load record from database.")
             return
 
@@ -348,6 +359,8 @@ class HistoryTab:
             )
         except Exception:
             self.app.extracted_metadata = {}
+
+        logger.info("Loaded historical record ID %s ('%s') into active workspace", record_id, os.path.basename(self.app.file_path))
 
         if risk_analyzer and isinstance(self.app.extracted_metadata, dict):
             try:

@@ -42,6 +42,10 @@ try:
 except ImportError:  # pragma: no cover - optional dependency
     extractor = None
 
+from src.config.logging_config import get_logger
+
+logger = get_logger("gui.risk")
+
 
 class RiskTab:
     """Component managing the Risk Analyzer tab UI and forensic visualizations."""
@@ -346,6 +350,7 @@ class RiskTab:
                 return
 
         try:
+            logger.info("Evaluating privacy and forensic risk for: '%s'", os.path.basename(self.app.file_path))
             self.app.risk_analysis = risk_analyzer.analyze_metadata(
                 self.app.extracted_metadata,
                 self.app.file_path,
@@ -358,7 +363,10 @@ class RiskTab:
             if self.app.nb_widget is not None and self.app.tab5_ref is not None:
                 self.app.nb_widget.select(self.app.tab5_ref)
 
+            score = self.app.risk_analysis.get("risk_score", 0) if isinstance(self.app.risk_analysis, dict) else 0
             level = self.app.risk_analysis.get("risk_level", "N/A") if isinstance(self.app.risk_analysis, dict) else "N/A"
+            logger.info("Risk scan complete for '%s': Score %s/100 (Level: %s)", os.path.basename(self.app.file_path), score, level)
             self.app.set_status(f"Risk scan complete: {level}")
         except Exception as exc:
+            logger.error("Risk scan failed for '%s': %s", os.path.basename(self.app.file_path or "file"), exc)
             messagebox.showerror("Risk Scan Error", f"Failed to analyze risk: {exc}")
