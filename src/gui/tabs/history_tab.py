@@ -6,6 +6,7 @@ Handles metadata history browsing, filtering, sorting, exporting, and deletion.
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime
 from tkinter import (
     BOTH,

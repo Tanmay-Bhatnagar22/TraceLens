@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from typing import Any, Iterable
 
@@ -74,7 +75,6 @@ class RiskAnalysisService:
                 file_path = item[1] if len(item) > 1 else ""
                 raw_meta = item[7] if len(item) > 7 else "{}"
                 if isinstance(raw_meta, str):
-                    import json
                     try:
                         meta_dict = json.loads(raw_meta)
                     except Exception:

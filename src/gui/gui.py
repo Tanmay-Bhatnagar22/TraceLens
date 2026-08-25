@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import shutil
 import sys
 import tempfile
 from datetime import datetime
@@ -1151,7 +1153,6 @@ class MetadataAnalyzerApp:
         log_text.tag_configure("tag_msg", foreground="#d4d4d4")
         log_text.tag_configure("tag_placeholder", foreground="#6e7681", font=("Consolas", 10, "italic"))
 
-        import re
         log_line_regex = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\s+\[(\w+)\]\s+\[(.*?)\]\s+(.*)$")
 
         LEVEL_MAP = {"DEBUG": 10, "INFO": 20, "WARNING": 30, "ERROR": 40, "CRITICAL": 50}

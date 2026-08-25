@@ -106,3 +106,51 @@ def test_history_tab_clear_filters(app):
         tab.date_var.set.assert_called_with("All Time")
         tab.sort_var.set.assert_called_with("Date (Newest)")
         tab.search_entry.focus_set.assert_called_once()
+
+
+def test_history_tab_on_tree_double_click(app):
+    """Test HistoryTab on_tree_double_click loads record into Extractor without NameError."""
+    import json
+    import src.gui.tabs.history_tab as history_tab_mod
+    mock_frame = mock.MagicMock()
+    with mock.patch.object(HistoryTab, "build_ui"), mock.patch.object(HistoryTab, "load_data"):
+        tab = HistoryTab(mock_frame, app)
+        mock_tree = mock.MagicMock()
+        mock_tree.selection.return_value = ["item1"]
+        mock_tree.item.return_value = {
+            "values": (1, "/path/to/test_sample.jpg", "test_sample.jpg", "100 KB", "image", "LOW", "2026-08-25", "2026-08-25", 42)
+        }
+        tab.tree = mock_tree
+
+        fake_row = (42, "/path/to/test_sample.jpg", "test_sample.jpg", "100 KB", "image", "2026-08-25T12:00:00", "2026-08-25T12:00:00", json.dumps({"Make": "Canon"}))
+        with mock.patch.object(history_tab_mod.db, "fetch_metadata_by_id", return_value=fake_row):
+            app.c1_text = mock.MagicMock()
+            app.nb_widget = mock.MagicMock()
+            app.nb_widget.tabs.return_value = ["tab1", "tab2"]
+
+            # Trigger double click
+            tab.on_tree_double_click(mock.MagicMock())
+
+            assert app.file_path == "/path/to/test_sample.jpg"
+            assert app.extracted_metadata == {"Make": "Canon"}
+            app.nb_widget.select.assert_called_with("tab1")
+            app.c1_text.insert.assert_called()
+
+
+def test_risk_tab_open_risk_analyzer_with_scan(app):
+    """Test RiskTab open_risk_analyzer_with_scan runs without NameError."""
+    import src.gui.tabs.risk_tab as risk_tab_mod
+    mock_frame = mock.MagicMock()
+    with mock.patch.object(RiskTab, "build_ui"), mock.patch.object(RiskTab, "render_risk_analysis"):
+        tab = RiskTab(mock_frame, app)
+        app.file_path = "/path/to/test_image.png"
+        app.extracted_metadata = {"Author": "Alice"}
+        app.nb_widget = mock.MagicMock()
+        app.tab5_ref = "tab5"
+
+        with mock.patch.object(risk_tab_mod.risk_analyzer, "analyze_metadata", return_value={"risk_score": 10, "risk_level": "LOW"}) as mock_analyze:
+            tab.open_risk_analyzer_with_scan()
+            mock_analyze.assert_called_once()
+            app.nb_widget.select.assert_called_with("tab5")
+
+

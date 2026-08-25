@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -23,8 +24,6 @@ class MetadataRecord:
     @classmethod
     def from_row(cls, row: tuple[Any, ...]) -> MetadataRecord:
         """Create a MetadataRecord instance from a database row tuple."""
-        import json
-
         raw_meta = row[7] if len(row) > 7 else "{}"
         if isinstance(raw_meta, str):
             try:

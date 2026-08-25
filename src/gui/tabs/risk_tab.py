@@ -5,6 +5,7 @@ Handles privacy risk gauge visualization, forensic timeline plotting, and anomal
 
 from __future__ import annotations
 
+import os
 from collections import defaultdict
 from datetime import datetime
 from tkinter import (
