@@ -9,6 +9,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from .batch_process_dialog import (
+    BatchProcessDialog,
+    open_batch_process_dialog,
+)
 from .gui import MetadataAnalyzerApp, run_gui
 from .statistics_dashboard import (
     StatisticsDashboard,
@@ -26,6 +30,8 @@ from .tabs import (
 __all__ = [
     "MetadataAnalyzerApp",
     "run_gui",
+    "BatchProcessDialog",
+    "open_batch_process_dialog",
     "StatisticsDashboard",
     "open_statistics_dashboard",
     "create_metric_card",
@@ -35,3 +41,4 @@ __all__ = [
     "RiskTab",
     "PreviewTab",
 ]
+

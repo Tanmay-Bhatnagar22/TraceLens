@@ -70,6 +70,7 @@ try:
 except ImportError:  # pragma: no cover - optional dependency
     risk_analyzer = None
 
+from src.gui.batch_process_dialog import BatchProcessDialog, open_batch_process_dialog
 from src.gui.statistics_dashboard import (
     StatisticsDashboard,
     create_metric_card,
@@ -82,6 +83,7 @@ from src.gui.tabs import (
     PreviewTab,
     RiskTab,
 )
+
 
 
 class MetadataAnalyzerApp:
@@ -921,118 +923,10 @@ class MetadataAnalyzerApp:
         self.root.attributes("-zoomed", not current_state)
         self.set_status("Fullscreen toggled" if not current_state else "Fullscreen disabled")
 
-    def menu_batch_process(self) -> None:
-        batch_window = Toplevel(self.root)
-        batch_window.title("Batch Process Files")
-        window_width = 600
-        window_height = 500
+    def menu_batch_process(self) -> BatchProcessDialog:
+        """Open the enhanced Batch Process & Folder Extraction dialog."""
+        return open_batch_process_dialog(self.root, self)
 
-        self.root.update_idletasks()
-        main_x = self.root.winfo_x()
-        main_y = self.root.winfo_y()
-        main_width = self.root.winfo_width()
-        main_height = self.root.winfo_height()
-
-        x = main_x + (main_width - window_width) // 2
-        y = main_y + (main_height - window_height) // 2
-
-        batch_window.geometry(f"{window_width}x{window_height}+{x}+{y}")
-        batch_window.transient(self.root)
-        batch_window.grab_set()
-
-        Label(
-            batch_window, text="Batch Process Metadata Extraction", font=("Segoe UI", 14, "bold"), bg="#f5f7fa"
-        ).pack(fill=X, padx=15, pady=10)
-
-        main_frame = Frame(batch_window, bg="#ffffff")
-        main_frame.pack(fill=BOTH, expand=True, padx=15, pady=10)
-
-        Label(main_frame, text="Select files to process:", font=("Segoe UI", 10, "bold"), bg="#ffffff").pack(
-            anchor=W, pady=(0, 8)
-        )
-
-        files_listbox = Listbox(main_frame, height=10, bg="#ffffff", fg="#333333")
-        files_listbox.pack(fill=BOTH, expand=True, pady=(0, 10))
-
-        scrollbar = ttk.Scrollbar(files_listbox)
-        scrollbar.pack(side=RIGHT, fill=Y)
-        files_listbox.config(yscrollcommand=scrollbar.set)
-        scrollbar.config(command=files_listbox.yview)
-
-        def add_files():
-            filetypes = (
-                ("All Files", "*.*"),
-                ("Images", "*.jpg *.jpeg *.png *.gif *.bmp"),
-                ("Documents", "*.pdf *.docx *.txt *.xlsx"),
-            )
-            selected = filedialog.askopenfilenames(filetypes=filetypes)
-            for file in selected:
-                files_listbox.insert("end", file)
-
-        def remove_file():
-            selection = files_listbox.curselection()
-            if selection:
-                files_listbox.delete(selection[0])
-
-        def clear_list():
-            files_listbox.delete(0, "end")
-
-        def process_batch():
-            file_list = files_listbox.get(0, "end")
-            if not file_list:
-                messagebox.showwarning("No Files", "Please select files to process.")
-                return
-
-            try:
-                processed = 0
-                failed = 0
-                batch_entries = []
-                for path in file_list:
-                    try:
-                        if extractor:
-                            metadata, _ = extractor.extract_and_store(path)
-                            if isinstance(metadata, dict) and "Error" not in metadata:
-                                processed += 1
-                                batch_entries.append({"file_path": path, "metadata": metadata})
-                            else:
-                                failed += 1
-                    except Exception:
-                        failed += 1
-
-                result_msg = f"Processed: {processed} files\nFailed: {failed} files"
-                if risk_analyzer and batch_entries:
-                    try:
-                        self.risk_batch_summary = risk_analyzer.analyze_batch(batch_entries)
-                        counts = self.risk_batch_summary.get("risk_counts", {})
-                        result_msg += (
-                            "\n\nRisk Summary:"
-                            f"\nLOW: {counts.get('LOW', 0)}"
-                            f"\nMEDIUM: {counts.get('MEDIUM', 0)}"
-                            f"\nHIGH: {counts.get('HIGH', 0)}"
-                        )
-                    except Exception:
-                        self.risk_batch_summary = None
-
-                messagebox.showinfo("Batch Process Complete", result_msg)
-                self._render_risk_analysis(self.risk_analysis)
-                if callable(self.history_refresh):
-                    self.history_refresh()
-                batch_window.destroy()
-            except Exception as e:
-                messagebox.showerror("Error", f"Batch process failed: {str(e)}")
-
-        button_frame = Frame(main_frame, bg="#ffffff")
-        button_frame.pack(fill=X, pady=10)
-
-        ttk.Button(button_frame, text="Add Files", command=add_files).pack(side=LEFT, padx=5)
-        ttk.Button(button_frame, text="Remove Selected", command=remove_file).pack(side=LEFT, padx=5)
-        ttk.Button(button_frame, text="Clear List", command=clear_list).pack(side=LEFT, padx=5)
-
-        bottom_frame = Frame(batch_window, bg="#f5f7fa")
-        bottom_frame.pack(fill=X, padx=15, pady=(10, 15))
-
-        ttk.Button(bottom_frame, text="Process", command=process_batch).pack(side=RIGHT, padx=5)
-        ttk.Button(bottom_frame, text="Cancel", command=batch_window.destroy).pack(side=RIGHT, padx=5)
 
     def _create_metric_card(
         self, parent, title, value, subtitle="", bg_start="#667eea", bg_end="#764ba2", width=None
