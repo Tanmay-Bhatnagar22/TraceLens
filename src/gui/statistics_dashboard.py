@@ -577,21 +577,9 @@ class StatisticsDashboard:
         style = ttk.Style()
         style.theme_use("clam")
 
-        # Notebook tab styling
-        style.configure("Stats.TNotebook", background="#f5f7fa", borderwidth=0)
-        style.configure(
-            "Stats.TNotebook.Tab",
-            padding=[18, 9],
-            font=("Segoe UI", 10, "bold"),
-            background="#e4e8ef",
-            foreground="#2c3e50",
-            borderwidth=0,
-        )
-        style.map(
-            "Stats.TNotebook.Tab",
-            background=[("selected", "#ffffff"), ("active", "#d2d8e4")],
-            foreground=[("selected", "#667eea"), ("active", "#1a252f")],
-        )
+        # Notebook tab styling matching gui.py
+        style.configure("TNotebook", background="#f5f7fa", borderwidth=0)
+        style.configure("TNotebook.Tab", padding=[20, 10], font=("Segoe UI", 10))
 
         # Treeview styling
         style.configure(
@@ -746,8 +734,8 @@ class StatisticsDashboard:
         reset_btn.pack(side=LEFT, padx=4)
 
         # ---------------- 3. Notebook Multi-Tab Container ----------------
-        self.notebook = ttk.Notebook(self.window, style="Stats.TNotebook")
-        self.notebook.pack(fill=BOTH, expand=True, padx=14, pady=(0, 6))
+        self.notebook = ttk.Notebook(self.window)
+        self.notebook.pack(fill=BOTH, expand=True, padx=10, pady=(0, 6))
 
         # Create Tab Frames
         self.tab_overview = self._create_scrollable_tab(self.notebook)
@@ -756,11 +744,11 @@ class StatisticsDashboard:
         self.tab_optimizer = self._create_scrollable_tab(self.notebook)
         self.tab_reports = self._create_scrollable_tab(self.notebook)
 
-        self.notebook.add(self.tab_overview["container"], text=" Overview & KPIs ")
-        self.notebook.add(self.tab_charts["container"], text=" Visual Charts ")
-        self.notebook.add(self.tab_insights["container"], text=" Forensic Insights ")
-        self.notebook.add(self.tab_optimizer["container"], text=" Storage Optimizer ")
-        self.notebook.add(self.tab_reports["container"], text=" Export & Reports ")
+        self.notebook.add(self.tab_overview["container"], text="Overview & KPIs")
+        self.notebook.add(self.tab_charts["container"], text="Visual Charts")
+        self.notebook.add(self.tab_insights["container"], text="Forensic Insights")
+        self.notebook.add(self.tab_optimizer["container"], text="Storage Optimizer")
+        self.notebook.add(self.tab_reports["container"], text="Export & Reports")
         self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed, add="+")
 
         # ---------------- 4. Bottom Status & Action Bar ----------------
