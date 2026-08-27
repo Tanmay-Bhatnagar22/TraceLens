@@ -9,6 +9,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SRC_PATH = PROJECT_ROOT / 'src'
 if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 import pytest
 from report import (
@@ -43,10 +45,10 @@ def sample_dataframe():
         'ID': [1, 2],
         'File Path': ['/path/to/file1.txt', '/path/to/file2.pdf'],
         'File Name': ['file1.txt', 'file2.pdf'],
-        'File Size': ['1.0 KB', '100 KB'],
+        'File Size': ['1 KB', '2 KB'],
         'File Type': ['txt', 'pdf'],
-        'Extracted At': ['2024-01-01 10:00:00', '2024-01-02 11:00:00'],
-        'Modified On': ['2024-01-01 09:00:00', '2024-01-02 10:00:00'],
+        'Extracted At': ['2024-01-01', '2024-01-02'],
+        'Modified On': ['2024-01-01', '2024-01-02'],
         'Full Metadata': ['{}', '{}']
     }
     return pd.DataFrame(data)
@@ -69,6 +71,19 @@ def test_get_asset_path():
     """Test get asset path function."""
     path = get_asset_path("logo.png")
     assert isinstance(path, str)
+
+    # Test resolving images from assets directory
+    meta_path = get_asset_path("Metadata.png")
+    assert os.path.exists(meta_path)
+    assert "Metadata.png" in meta_path
+
+    # Test resolving asset with assets prefix
+    meta_prefix_path = get_asset_path(os.path.join("assets", "Metadata.png"))
+    assert os.path.exists(meta_prefix_path)
+
+    # Test resolving ico in assets directory
+    ico_path = get_asset_path("Metadata.ico")
+    assert os.path.exists(ico_path)
 
 
 def test_generate_report_text_basic(sample_metadata):
@@ -168,8 +183,9 @@ def test_export_to_json_valid(temp_dir, sample_dataframe):
     
     # Mock the file dialog behavior
     import unittest.mock as mock
-    with mock.patch('tkinter.filedialog.asksaveasfilename', return_value=json_file):
-        reporter.export_to_json(sample_dataframe)
+    with mock.patch('src.core.reports.report.filedialog.asksaveasfilename', return_value=json_file):
+        with mock.patch('src.core.reports.report.messagebox.showinfo'):
+            reporter.export_to_json(sample_dataframe)
     
     assert os.path.exists(json_file)
     with open(json_file, 'r') as f:
@@ -183,8 +199,8 @@ def test_export_to_xml_valid(temp_dir, sample_dataframe):
     xml_file = os.path.join(temp_dir, "export.xml")
     
     import unittest.mock as mock
-    with mock.patch('tkinter.filedialog.asksaveasfilename', return_value=xml_file):
-        with mock.patch('tkinter.messagebox.showinfo'):
+    with mock.patch('src.core.reports.report.filedialog.asksaveasfilename', return_value=xml_file):
+        with mock.patch('src.core.reports.report.messagebox.showinfo'):
             reporter.export_to_xml(sample_dataframe)
     
     assert os.path.exists(xml_file)
@@ -204,8 +220,8 @@ def test_export_to_csv_valid(temp_dir):
     ]
     
     import unittest.mock as mock
-    with mock.patch('tkinter.filedialog.asksaveasfilename', return_value=csv_file):
-        with mock.patch('tkinter.messagebox.showinfo'):
+    with mock.patch('src.core.reports.report.filedialog.asksaveasfilename', return_value=csv_file):
+        with mock.patch('src.core.reports.report.messagebox.showinfo'):
             reporter.export_to_csv(data)
     
     assert os.path.exists(csv_file)
@@ -220,7 +236,7 @@ def test_export_empty_dataframe(sample_dataframe):
     empty_df = sample_dataframe.iloc[0:0]
     
     import unittest.mock as mock
-    with mock.patch('tkinter.messagebox.showwarning') as mock_warning:
+    with mock.patch('src.core.reports.report.messagebox.showwarning') as mock_warning:
         reporter.export_to_json(empty_df)
         mock_warning.assert_called_once()
 
@@ -232,8 +248,8 @@ def test_export_to_excel_valid(temp_dir, sample_dataframe):
         excel_file = os.path.join(temp_dir, "export.xlsx")
         
         import unittest.mock as mock
-        with mock.patch('tkinter.filedialog.asksaveasfilename', return_value=excel_file):
-            with mock.patch('tkinter.messagebox.showinfo'):
+        with mock.patch('src.core.reports.report.filedialog.asksaveasfilename', return_value=excel_file):
+            with mock.patch('src.core.reports.report.messagebox.showinfo'):
                 reporter.export_to_excel(sample_dataframe)
         
         assert os.path.exists(excel_file)
@@ -287,7 +303,7 @@ def test_export_to_pdf(sample_dataframe):
     """Backward compatibility wrapper. See test_export_to_json_valid for details."""
     reporter = MetadataReporter()
     import unittest.mock as mock
-    with mock.patch('tkinter.filedialog.asksaveasfilename'):
-        with mock.patch('tkinter.messagebox.showinfo'):
+    with mock.patch('src.core.reports.report.filedialog.asksaveasfilename'):
+        with mock.patch('src.core.reports.report.messagebox.showinfo'):
             # Test that export methods work without raising
             assert callable(reporter.export_to_pdf)

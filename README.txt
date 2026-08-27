@@ -7,7 +7,8 @@ It provides both a GUI app and a CLI tool.
 Included in Installer
 - TraceLens.exe (GUI)
 - TraceLens-cli.exe (CLI)
-- Metadata.png
+- assets/Metadata.png
+- assets/Metadata.ico
 - License file
 
 Key Features

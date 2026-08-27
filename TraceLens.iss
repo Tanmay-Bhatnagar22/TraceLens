@@ -26,7 +26,7 @@ OutputBaseFilename=TraceLens-Setup
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
-SetupIconFile=Metadata.ico
+SetupIconFile=assets\Metadata.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -40,7 +40,9 @@ Name: "desktopicon"; Description: "Create a desktop icon"; GroupDescription: "Ad
 [Files]
 Source: "dist\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "dist\{#MyCliExeName}"; DestDir: "{app}"; Flags: ignoreversion
-Source: "Metadata.png"; DestDir: "{app}"; Flags: ignoreversion
+Source: "assets\Metadata.png"; DestDir: "{app}\assets"; Flags: ignoreversion
+Source: "assets\Metadata.ico"; DestDir: "{app}\assets"; Flags: ignoreversion
+Source: "assets\Metadata.png"; DestDir: "{app}"; Flags: ignoreversion
 Source: "README.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 

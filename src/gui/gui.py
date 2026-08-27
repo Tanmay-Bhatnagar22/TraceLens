@@ -181,8 +181,26 @@ class MetadataAnalyzerApp:
         try:
             base_path = sys._MEIPASS
         except Exception:
-            base_path = os.path.abspath(".")
-        return os.path.join(base_path, relative_path)
+            project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+            base_path = project_root if os.path.exists(project_root) else os.path.abspath(".")
+
+        direct_path = os.path.join(base_path, relative_path)
+        if os.path.exists(direct_path):
+            return direct_path
+
+        assets_path = os.path.join(base_path, "assets", relative_path)
+        if os.path.exists(assets_path):
+            return assets_path
+
+        cwd_path = os.path.join(os.path.abspath("."), relative_path)
+        if os.path.exists(cwd_path):
+            return cwd_path
+
+        cwd_assets = os.path.join(os.path.abspath("."), "assets", relative_path)
+        if os.path.exists(cwd_assets):
+            return cwd_assets
+
+        return direct_path
 
     def run(self) -> None:
         """Launch the GUI application.
@@ -216,7 +234,7 @@ class MetadataAnalyzerApp:
         self.root.resizable(True, True)
         logger.info("TraceLens main GUI window initialized (%dx%d)", self.window_width, self.window_height)
 
-        logo_path = self._resource_path("Metadata.png")
+        logo_path = self._resource_path(os.path.join("assets", "Metadata.png"))
         if os.path.exists(logo_path):
             try:
                 # Keep a reference to prevent Tk from garbage-collecting the image.
