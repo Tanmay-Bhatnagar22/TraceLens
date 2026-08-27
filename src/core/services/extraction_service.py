@@ -20,10 +20,27 @@ class ExtractionService:
     """Application service for extracting and managing file metadata."""
 
     SUPPORTED_EXTENSIONS = {
-        ".pdf", ".txt", ".py", ".cpp", ".c", ".java", ".js", ".json",
-        ".csv", ".md", ".html", ".css", ".png", ".jpg", ".jpeg",
-        ".gif", ".bmp", ".tiff", ".mp3", ".mp4", ".wav", ".avi",
-        ".mkv", ".docx", ".xlsx", ".pptx", ".zip"
+        # Documents
+        ".pdf", ".docx", ".doc", ".xlsx", ".xlsm", ".xltx", ".xls", ".pptx", ".ppt", ".odt", ".ods", ".odp", ".txt", ".rtf",
+        # Images & Vector
+        ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".tif", ".webp", ".ico", ".svg",
+        # Audio
+        ".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg", ".opus", ".wma", ".aiff", ".aif",
+        # Video & Containers
+        ".mp4", ".mkv", ".avi", ".mov", ".wmv", ".flv", ".webm", ".m4v", ".3gp", ".mpg", ".mpeg",
+        # Archives
+        ".zip", ".tar", ".gz", ".tgz", ".bz2", ".tbz2", ".xz", ".txz", ".7z",
+        # Structured Data & Config
+        ".json", ".csv", ".tsv", ".xml", ".html", ".htm", ".xhtml", ".yaml", ".yml",
+        ".ini", ".cfg", ".conf", ".toml", ".env", ".sql",
+        # Source Code & Scripts
+        ".py", ".pyw", ".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx",
+        ".c", ".cpp", ".cc", ".cxx", ".h", ".hpp", ".hxx", ".cs",
+        ".java", ".go", ".rs", ".php", ".rb", ".swift", ".kt", ".kts",
+        ".sh", ".bash", ".zsh", ".bat", ".cmd", ".ps1", ".lua", ".r",
+        ".scala", ".dart", ".md", ".markdown", ".css", ".scss", ".less",
+        # Databases
+        ".db", ".sqlite", ".sqlite3", ".db3", ".s3db", ".sl3",
     }
 
     def __init__(

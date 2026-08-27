@@ -155,14 +155,16 @@ class ExtractorTab:
     def choose_file(self) -> None:
         """Open file dialog for user to select a file to analyze."""
         filetypes = (
+            ("All Supported Files", "*.pdf *.docx *.doc *.xlsx *.xlsm *.pptx *.odt *.ods *.odp *.txt *.jpg *.jpeg *.png *.gif *.bmp *.webp *.tiff *.svg *.mp3 *.wav *.flac *.m4a *.ogg *.mp4 *.avi *.mkv *.mov *.zip *.tar *.gz *.json *.csv *.tsv *.xml *.html *.yaml *.yml *.ini *.sql *.db *.sqlite *.sqlite3 *.py *.js *.ts *.cpp *.c *.java *.rs *.go"),
             ("All Files", "*.*"),
-            ("Images", "*.jpg *.jpeg *.png *.gif *.bmp"),
-            ("Documents", "*.pdf *.docx *.txt *.xlsx"),
-            ("Audio", "*.mp3 *.wav *.flac"),
-            (
-                "Code Files",
-                "*.py *.js *.java *.cpp *.c *.html *.css *.php *.rb *.go *.rs *.ts *.jsx *.tsx *.xml *.json *.yaml *.yml",
-            ),
+            ("Images & Vector", "*.jpg *.jpeg *.png *.gif *.bmp *.webp *.tiff *.tif *.ico *.svg"),
+            ("Documents", "*.pdf *.docx *.doc *.xlsx *.xlsm *.xltx *.pptx *.ppt *.odt *.ods *.odp *.txt *.rtf"),
+            ("Audio Files", "*.mp3 *.wav *.flac *.m4a *.aac *.ogg *.opus *.wma *.aiff"),
+            ("Video Files", "*.mp4 *.mkv *.avi *.mov *.wmv *.flv *.webm *.m4v"),
+            ("Archives", "*.zip *.tar *.gz *.tgz *.bz2 *.xz *.7z"),
+            ("Structured Data", "*.json *.csv *.tsv *.xml *.html *.htm *.yaml *.yml *.ini *.cfg *.conf *.env *.sql"),
+            ("Code & Scripts", "*.py *.js *.ts *.jsx *.tsx *.java *.cpp *.c *.h *.cs *.php *.rb *.go *.rs *.swift *.kt *.sh *.bat *.ps1 *.md"),
+            ("Database Files", "*.db *.sqlite *.sqlite3 *.db3"),
         )
         selected_file = filedialog.askopenfilename(filetypes=filetypes)
         if selected_file:

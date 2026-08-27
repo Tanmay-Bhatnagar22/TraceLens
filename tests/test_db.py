@@ -20,7 +20,7 @@ from db import (
 @pytest.fixture
 def temp_db():
     """Create a temporary database for testing."""
-    with tempfile.TemporaryDirectory() as tmp_dir:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp_dir:
         db_path = os.path.join(tmp_dir, "test_metadata.db")
         db = MetadataDatabase(db_path=db_path)
         yield db
