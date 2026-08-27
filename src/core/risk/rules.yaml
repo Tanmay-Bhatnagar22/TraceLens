@@ -1,0 +1,172 @@
+version: "2.0"
+name: "TraceLens Default Risk & Forensic Ruleset"
+description: "Ruleset for evaluating metadata privacy vulnerabilities, identifying sensitive indicators, and detecting forensic timeline anomalies."
+
+thresholds:
+  low:
+    min: 0
+    max: 29
+    label: "LOW"
+  medium:
+    min: 30
+    max: 64
+    label: "MEDIUM"
+  high:
+    min: 65
+    max: 100
+    label: "HIGH"
+
+scoring:
+  max_score: 100
+  anomaly_penalty: 20
+
+timeline:
+  candidate_keys:
+    - "capture"
+    - "created"
+    - "creation"
+    - "modified"
+    - "edit"
+    - "timestamp"
+    - "date"
+    - "time"
+    - "last saved"
+  datetime_formats:
+    - "%Y-%m-%d %H:%M:%S"
+    - "%Y-%m-%d %H:%M"
+    - "%d-%m-%Y %H:%M:%S"
+    - "%d-%m-%Y %H:%M"
+    - "%Y-%m-%d"
+    - "%d-%m-%Y"
+
+anomalies:
+  - id: "timestamp_inversion"
+    name: "Timestamp Inversion"
+    description: "Chronological mismatch where modification occurs before creation."
+    enabled: true
+    penalty: 20
+    template: "Timestamp mismatch: '{curr_event}' occurs before '{prev_event}'."
+
+  - id: "multiple_editing_chains"
+    name: "Multiple Editing Chains"
+    description: "Multiple distinct software/editors detected in metadata processing history."
+    enabled: true
+    penalty: 15
+    software_keys:
+      - "software"
+      - "application"
+      - "producer"
+      - "editor"
+    min_distinct: 2
+    message: "Multiple editing chain detected from software metadata."
+
+  - id: "stacked_metadata_blocks"
+    name: "Stacked Metadata Blocks"
+    description: "Possible overwritten, stacked, or multiple metadata container formats present."
+    enabled: true
+    penalty: 15
+    block_keys:
+      - "xmp"
+      - "iptc"
+      - "exif"
+      - "makernote"
+      - "thumbnail"
+      - "history"
+    min_count: 3
+    message: "Possible overwritten/stacked metadata blocks detected."
+
+rules:
+  - id: "gps_coordinates"
+    name: "GPS Location Metadata"
+    category: "geolocation"
+    score: 30
+    severity: "HIGH"
+    enabled: true
+    reason: "GPS or precise location metadata is present."
+    remediation: "Strip GPS/geotag coordinates before sharing to prevent physical location exposure."
+    conditions:
+      any:
+        - match_type: "key_contains"
+          keys: ["gps", "latitude", "longitude", "lat", "lon", "location", "altitude"]
+        - match_type: "value_regex"
+          pattern: "[-+]?\\d{1,3}\\.\\d+\\s*,\\s*[-+]?\\d{1,3}\\.\\d+"
+
+  - id: "author_identity"
+    name: "Author & User Identity"
+    category: "identity"
+    score: 18
+    severity: "MEDIUM"
+    enabled: true
+    reason: "Author/user identity metadata is present."
+    remediation: "Remove creator, author, and user account metadata to protect personal identity."
+    conditions:
+      any:
+        - match_type: "key_contains"
+          keys: ["author", "creator", "owner", "user", "last modified by", "artist", "by-line"]
+
+  - id: "device_information"
+    name: "Device & Hardware Identifiers"
+    category: "hardware"
+    score: 18
+    severity: "MEDIUM"
+    enabled: true
+    reason: "Device or camera-identifying information is present."
+    remediation: "Clear device serial numbers, camera model, and hardware identifiers."
+    conditions:
+      any:
+        - match_type: "key_contains"
+          keys: ["device", "camera", "model", "serial", "imei", "make", "lens"]
+
+  - id: "editing_traces"
+    name: "Editing Software & History"
+    category: "software"
+    score: 15
+    severity: "MEDIUM"
+    enabled: true
+    reason: "Software/editor processing traces are present."
+    remediation: "Scrub editing software versions and revision history from document headers."
+    conditions:
+      any:
+        - match_type: "key_contains"
+          keys: ["software", "application", "producer", "editor", "history", "tool", "source"]
+
+  - id: "hidden_blocks"
+    name: "Embedded & Hidden Metadata Blocks"
+    category: "forensic"
+    score: 20
+    severity: "MEDIUM"
+    enabled: true
+    reason: "Hidden/embedded metadata blocks (XMP/EXIF/IPTC/MakerNote) detected."
+    remediation: "Consider sanitizing all embedded metadata blocks prior to public distribution."
+    conditions:
+      any:
+        - match_type: "key_contains"
+          keys: ["xmp", "iptc", "exif", "makernote", "thumbnail", "private tag", "icc profile"]
+
+  - id: "network_traces"
+    name: "Network & URL Traces"
+    category: "privacy"
+    score: 15
+    severity: "MEDIUM"
+    enabled: true
+    reason: "Internal URLs, UNC network paths, or IP addresses discovered in metadata."
+    remediation: "Remove sensitive intranet URLs, hostnames, and IP paths."
+    conditions:
+      any:
+        - match_type: "value_regex"
+          pattern: "https?://|\\\\\\\\[a-zA-Z0-9_.-]+\\\\"
+        - match_type: "key_contains"
+          keys: ["uri", "url", "server", "host", "domain", "ip address"]
+
+  - id: "cryptographic_signatures"
+    name: "Digital Signatures & Certificates"
+    category: "security"
+    score: 10
+    severity: "LOW"
+    enabled: true
+    reason: "Digital certificates or cryptographic signature blocks present."
+    remediation: "Verify if digital signature exposes signer identity or internal enterprise PKI."
+    conditions:
+      any:
+        - match_type: "key_contains"
+          keys: ["signature", "certificate", "cert", "signer", "fingerprint"]

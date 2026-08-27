@@ -1387,8 +1387,7 @@ class MetadataAnalyzerApp:
         tools_menu.add_command(label="Clear History", command=self.menu_clear_history)
         tools_menu.add_separator()
         tools_menu.add_command(label="Statistics Dashboard", command=self.menu_statistics)
-        tools_menu.add_command(label="Application Logs", command=self.menu_view_logs)
-
+        
         help_menu = Menu(
             menu, tearoff=0, bg="#f5f7fa", fg="#1a1a1a", activebackground="#0066cc", activeforeground="#ffffff"
         )
@@ -1398,7 +1397,6 @@ class MetadataAnalyzerApp:
         help_menu.add_command(label="Keyboard Shortcuts", command=self.menu_show_shortcuts, accelerator="Ctrl+?")
         help_menu.add_separator()
         help_menu.add_command(label="View Application Logs", command=self.menu_view_logs)
-        help_menu.add_separator()
         help_menu.add_command(label="Check for Updates", command=self.menu_check_updates)
         help_menu.add_separator()
         help_menu.add_command(label="About TraceLens", command=self.menu_show_about)

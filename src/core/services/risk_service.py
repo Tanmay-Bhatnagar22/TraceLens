@@ -4,10 +4,16 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 from typing import Any, Iterable
 
 from src.config.logging_config import get_logger
-from src.core.risk import risk_analyzer as risk_module
+from src.core.risk import (
+    PrivacyForensicAnalyzer,
+    RiskEngine,
+    RiskRuleDefinition,
+    analyzer as default_analyzer,
+)
 from src.models.risk import BatchRiskResult, RiskAssessment
 
 logger = get_logger("core.services.risk")
@@ -18,10 +24,31 @@ class RiskAnalysisService:
 
     def __init__(
         self,
-        analyzer: risk_module.PrivacyForensicAnalyzer | None = None,
+        analyzer: PrivacyForensicAnalyzer | RiskEngine | None = None,
     ) -> None:
-        self.analyzer = analyzer or risk_module.analyzer
+        self.analyzer = analyzer or default_analyzer
 
+    @property
+    def engine(self) -> RiskEngine:
+        """Accessor for the underlying RiskEngine instance."""
+        if isinstance(self.analyzer, RiskEngine):
+            return self.analyzer
+        if hasattr(self.analyzer, "engine"):
+            return self.analyzer.engine
+        # Fallback create wrapper
+        return RiskEngine()
+
+    def load_custom_rules(self, rules_path: str | Path) -> None:
+        """Load an external YAML ruleset into the active engine."""
+        self.engine.load_rules_file(rules_path)
+
+    def get_active_rules(self) -> list[RiskRuleDefinition]:
+        """Return the list of currently registered risk rules."""
+        return self.engine.rules
+
+    def export_rules_yaml(self, file_path: str | Path | None = None) -> str:
+        """Export current ruleset configuration as YAML."""
+        return self.engine.export_rules_yaml(file_path=file_path)
 
     def analyze_metadata(
         self,
@@ -45,9 +72,10 @@ class RiskAnalysisService:
             fallback_timestamps=fallback_timestamps,
         )
 
-        # Identify specific sensitive fields found
-        sensitive = self.identify_sensitive_fields(metadata or {})
-        raw_result["sensitive_keys"] = sensitive
+        # Identify specific sensitive fields found if not already present
+        if "sensitive_keys" not in raw_result or not raw_result["sensitive_keys"]:
+            sensitive = self.identify_sensitive_fields(metadata or {})
+            raw_result["sensitive_keys"] = sensitive
 
         return RiskAssessment.from_dict(raw_result)
 
@@ -123,6 +151,9 @@ class RiskAnalysisService:
 
     def identify_sensitive_fields(self, metadata: dict[str, Any]) -> list[str]:
         """Find keys in metadata containing sensitive indicators (GPS, Author, Serial, etc.)."""
+        if hasattr(self.engine, "identify_sensitive_fields"):
+            return self.engine.identify_sensitive_fields(metadata)
+
         sensitive_patterns = [
             "gps", "latitude", "longitude", "altitude",
             "author", "creator", "owner", "user", "last modified by",

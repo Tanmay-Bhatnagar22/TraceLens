@@ -17,7 +17,6 @@ if str(SRC_PATH) not in sys.path:
 from src.config.logging_config import get_log_file_path, get_logger, setup_logging
 from gui import run_gui
 
-
 def main() -> None:
     """Start TraceLens GUI with logging initialized."""
     log_file = setup_logging()
