@@ -46,6 +46,11 @@ class HistoryService:
         """Fetch raw tuples for performance-critical views or treeviews."""
         return self.database.fetch_all_metadata()
 
+    def get_recent_records(self, limit: int = 10) -> list[MetadataRecord]:
+        """Fetch the most recent metadata records as domain models."""
+        rows = self.database.get_recent_records(limit=limit)
+        return [MetadataRecord.from_row(row) for row in rows]
+
     def filter_records(
         self,
         search_query: str = "",
@@ -97,7 +102,12 @@ class HistoryService:
 
     def optimize_database(self) -> tuple[bool, str]:
         """Perform SQLite database optimization (VACUUM, ANALYZE, integrity check)."""
-        return self.database.optimize_database()
+        res = self.database.optimize_database()
+        if isinstance(res, tuple):
+            return res
+        if res:
+            return True, "PRAGMA optimize succeeded"
+        return False, "Database optimization failed"
 
     def export_history(self, file_format: str, output_path: str | None = None) -> tuple[bool, str]:
         """Export all database records to a file (JSON, XML, CSV, Excel).

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 from typing import Any
@@ -114,6 +115,30 @@ class MetadataEditorService:
         sanitized_metadata: dict[str, Any] = {}
         return self.editor.write_metadata_to_file(file_path, sanitized_metadata)
 
-    def get_editable_text(self, db_record: tuple[Any, ...] | dict[str, Any]) -> str:
-        """Format a database record or metadata dict into editable multi-line text."""
-        return self.editor.get_editable_text(db_record)
+    def get_editable_text(
+        self,
+        file_path_or_record: str | tuple[Any, ...] | dict[str, Any],
+        metadata: dict[str, Any] | None = None,
+    ) -> str:
+        """Format a file path + metadata or database record into editable multi-line text."""
+        if isinstance(file_path_or_record, str):
+            meta = metadata if isinstance(metadata, dict) else {}
+            return self.editor.get_editable_text(file_path_or_record, meta)
+        if isinstance(file_path_or_record, tuple) and len(file_path_or_record) == 2 and isinstance(file_path_or_record[0], str) and isinstance(file_path_or_record[1], dict):
+            return self.editor.get_editable_text(file_path_or_record[0], file_path_or_record[1])
+        if isinstance(file_path_or_record, tuple) and len(file_path_or_record) > 7:
+            file_path = file_path_or_record[1]
+            raw_meta = file_path_or_record[7]
+            if isinstance(raw_meta, str):
+                try:
+                    meta = json.loads(raw_meta)
+                except Exception:
+                    meta = {}
+            else:
+                meta = raw_meta if isinstance(raw_meta, dict) else {}
+            return self.editor.get_editable_text(file_path, meta)
+        if isinstance(file_path_or_record, dict):
+            file_path = file_path_or_record.get("file_path", "")
+            meta = file_path_or_record.get("full_metadata", file_path_or_record.get("metadata", file_path_or_record))
+            return self.editor.get_editable_text(file_path, meta if isinstance(meta, dict) else {})
+        return self.editor.get_editable_text(str(file_path_or_record), metadata or {})

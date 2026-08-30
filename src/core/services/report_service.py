@@ -123,8 +123,41 @@ class ReportService:
         format_type: str,
         output_path: str,
     ) -> tuple[bool, str]:
-        """Export a pandas DataFrame of history records to CSV, Excel, JSON, or XML."""
-        return self.reporter.export_dataframe(df, format_type, output_path)
+        """Export a pandas DataFrame of history records to CSV, Excel, JSON, XML, or PDF."""
+        fmt = format_type.lower().strip()
+        try:
+            if fmt == "json":
+                df.to_json(output_path, orient="records", indent=2)
+                return True, f"Exported {len(df)} records to {output_path}"
+            elif fmt == "csv":
+                df.to_csv(output_path, index=False)
+                return True, f"Exported {len(df)} records to {output_path}"
+            elif fmt in ("excel", "xlsx"):
+                with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+                    df.to_excel(writer, sheet_name="Metadata", index=False)
+                return True, f"Exported {len(df)} records to {output_path}"
+            elif fmt == "xml":
+                import xml.etree.ElementTree as ET
+
+                root = ET.Element("metadata_records")
+                for _, row in df.iterrows():
+                    record = ET.SubElement(root, "record")
+                    for column in df.columns:
+                        element = ET.SubElement(record, column.lower().replace(" ", "_"))
+                        value = row[column]
+                        element.text = "" if pd.isna(value) else str(value)
+                ET.ElementTree(root).write(output_path, encoding="utf-8", xml_declaration=True)
+                return True, f"Exported {len(df)} records to {output_path}"
+            elif fmt == "pdf":
+                if hasattr(self.reporter, "create_pdf_from_dataframe"):
+                    self.reporter.create_pdf_from_dataframe(df, output_path)
+                    return True, f"Exported {len(df)} records to {output_path}"
+                else:
+                    return False, "PDF export not supported on reporter."
+            else:
+                return False, f"Unsupported export format: {format_type}"
+        except Exception as e:
+            return False, f"Export failed: {e}"
 
     def create_report(
         self,

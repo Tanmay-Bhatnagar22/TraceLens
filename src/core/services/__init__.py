@@ -1,7 +1,12 @@
 """Shared application services for TraceLens."""
 
 from src.core.services.analytics_service import AnalyticsService
-from src.core.services.container import ServiceContainer, get_service_container
+from src.core.services.container import (
+    ServiceContainer,
+    get_service_container,
+    reset_service_container,
+    set_service_container,
+)
 from src.core.services.editor_service import MetadataEditorService
 from src.core.services.extraction_service import ExtractionService
 from src.core.services.history_service import HistoryService
@@ -17,4 +22,6 @@ __all__ = [
     "AnalyticsService",
     "ServiceContainer",
     "get_service_container",
+    "set_service_container",
+    "reset_service_container",
 ]

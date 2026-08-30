@@ -1,7 +1,8 @@
 """TraceLens command-line interface.
 
-This module exposes the production CLI entrypoint while keeping a few
-compatibility helpers for older callers and tests.
+This module exposes the production CLI entrypoint with first-class support for the
+TraceLens service layer (ServiceContainer, ExtractionService, RiskAnalysisService,
+MetadataEditorService, HistoryService, ReportService, AnalyticsService).
 """
 
 from __future__ import annotations
@@ -15,8 +16,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import pandas as pd
 import click
+import pandas as pd
 import typer
 from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn, TimeRemainingColumn
 
@@ -33,9 +34,31 @@ from src.core.editor import editor as editor_core
 from src.core.extractor import extractor as extractor_core
 from src.core.reports import report as report_core
 from src.core.risk import risk_analyzer as risk_core
+from src.core.services import (
+    AnalyticsService,
+    ExtractionService,
+    HistoryService,
+    MetadataEditorService,
+    ReportService,
+    RiskAnalysisService,
+    ServiceContainer,
+    get_service_container,
+    set_service_container,
+)
+from src.models import (
+    AnalyticsSummary,
+    BatchExtractionResult,
+    BatchRiskResult,
+    ExtractionResult,
+    MetadataRecord,
+    ReportConfig,
+    ReportResult,
+    RiskAssessment,
+)
 
 logger = get_logger("cli")
 
+# Backward compatibility references for tests and legacy callers
 db = db_core
 editor = editor_core
 extractor = extractor_core
@@ -59,8 +82,12 @@ DB_COLUMNS = [
 
 @dataclass
 class CLIState:
+    """Runtime configuration and dependency container for the CLI session."""
+
     verbose: bool = False
     quiet: bool = False
+    db_path: str | None = None
+    container: ServiceContainer | None = None
 
 
 app = typer.Typer(
@@ -75,22 +102,85 @@ app.add_typer(history_app, name="history")
 app.add_typer(config_app, name="config")
 
 
+_active_state: CLIState = CLIState()
+
+
 def _get_state() -> CLIState:
+    global _active_state
     try:
         ctx = click.get_current_context()
     except RuntimeError:
-        return CLIState()
+        return _active_state
 
-    state = ctx.obj if isinstance(ctx.obj, CLIState) else None
-    if state is None:
-        state = CLIState()
-        ctx.obj = state
-    return state
+    cur: click.Context | None = ctx
+    while cur is not None:
+        if isinstance(cur.obj, CLIState):
+            return cur.obj
+        cur = cur.parent
+
+    return _active_state
 
 
-def _set_state_from_context(ctx: typer.Context, verbose: bool, quiet: bool) -> CLIState:
-    state = CLIState(verbose=verbose, quiet=quiet)
+def get_services(state: CLIState | None = None) -> ServiceContainer:
+    """Retrieve the active ServiceContainer, either from state, singleton, or dynamically configured."""
+    if state is not None and state.container is not None:
+        return state.container
+
+    current_state = _get_state()
+    if current_state.container is not None:
+        return current_state.container
+
+    # Respect custom components if monkeypatched or explicitly configured
+    custom_db = db if db is not db_core else None
+    custom_extractor = extractor if extractor is not extractor_core else None
+    custom_analyzer = risk_analyzer if risk_analyzer is not risk_core else None
+    custom_editor = editor if editor is not editor_core else None
+    custom_reporter = report if report is not report_core else None
+
+    if (
+        current_state.db_path
+        or custom_db
+        or custom_extractor
+        or custom_analyzer
+        or custom_editor
+        or custom_reporter
+    ):
+        container = ServiceContainer(
+            db_path=current_state.db_path,
+            database=custom_db,
+            extractor=custom_extractor,
+            analyzer=custom_analyzer,
+            editor=custom_editor,
+            reporter=custom_reporter,
+        )
+    else:
+        container = get_service_container(db_path=current_state.db_path)
+
+    current_state.container = container
+    return container
+
+
+def set_services(container: ServiceContainer | None) -> None:
+    """Set the active ServiceContainer for the CLI and global context."""
+    global _active_state
+    set_service_container(container)
+    _active_state.container = container
+    state = _get_state()
+    state.container = container
+
+
+def _set_state_from_context(
+    ctx: typer.Context,
+    verbose: bool,
+    quiet: bool,
+    db_path: str | None = None,
+) -> CLIState:
+    global _active_state
+    state = CLIState(verbose=verbose, quiet=quiet, db_path=db_path)
+    if db_path:
+        state.container = ServiceContainer(db_path=db_path)
     ctx.obj = state
+    _active_state = state
     # Initialize logging level according to verbosity flags
     level = "DEBUG" if verbose else ("WARNING" if quiet else "INFO")
     setup_logging(level=level, log_to_console=verbose)
@@ -117,7 +207,6 @@ def _print_success(text: str) -> None:
     message(text, kind="success")
 
 
-
 def _normalize_path(raw: str) -> str:
     return str(normalize_path(raw))
 
@@ -137,9 +226,11 @@ def print_menu() -> None:
             [
                 "tracelens extract file.pdf",
                 "tracelens analyze file.pdf",
+                "tracelens sanitize file.pdf",
                 "tracelens edit file.pdf --set Author=New Name",
                 "tracelens report 12",
                 "tracelens history",
+                "tracelens analytics",
                 "tracelens export json --output history.json",
                 "tracelens config",
             ],
@@ -182,27 +273,28 @@ def _loads_metadata_blob(blob: Any) -> dict[str, Any]:
 
 
 def _load_record(record_id: int) -> dict[str, Any] | None:
-    row = db_core.fetch_metadata_by_id(record_id)
-    if not row:
+    services = get_services()
+    record = services.history.get_record_by_id(record_id)
+    if not record:
         return None
-    record = _row_to_record(row)
-    record["full_metadata"] = _loads_metadata_blob(record.get("full_metadata"))
-    return record
+    return record.to_dict()
 
 
 def _load_latest_record_for_path(file_path: str) -> dict[str, Any] | None:
-    row = db_core.fetch_latest_by_path(file_path)
-    if not row:
+    services = get_services()
+    record = services.history.get_latest_by_path(file_path)
+    if not record:
         return None
-    record = _row_to_record(row)
-    record["full_metadata"] = _loads_metadata_blob(record.get("full_metadata"))
-    return record
+    return record.to_dict()
 
 
 def _extract_metadata(file_path: str, *, save_to_db: bool = True) -> tuple[dict[str, Any], tuple[Any, ...] | None]:
-    if save_to_db:
-        return extractor_core.extract_and_store(file_path)
-    return extractor_core.extract(file_path), None
+    services = get_services()
+    result = services.extraction.extract_file(file_path, persist=save_to_db)
+    db_row = (result.db_record_id,) if result.db_record_id else None
+    if not result.success and not result.metadata:
+        return {"Error": result.error or "Extraction failed."}, db_row
+    return result.metadata, db_row
 
 
 def _resolve_input_files(targets: list[str]) -> list[Path]:
@@ -226,13 +318,16 @@ def _history_rows(
     date_filter: str,
     sort: str,
 ) -> list[tuple[Any, ...]]:
+    services = get_services()
     has_filters = any([query.strip(), file_type != "All", date_filter != "All Time", sort != "Date (Newest)"])
     if has_filters:
-        rows = db_core.filter_and_search_data(query, file_type, date_filter, sort)
+        rows = services.database.filter_and_search_data(query, file_type, date_filter, sort)
         if limit > 0:
             return rows[:limit]
         return rows
-    return db_core.get_recent_records(limit=limit)
+    if limit > 0:
+        return services.database.get_recent_records(limit=limit)
+    return services.database.fetch_all_metadata()
 
 
 def _preview_report_text(text: str, *, limit: int = 1400) -> str:
@@ -267,18 +362,20 @@ def _write_export_file(dataframe: pd.DataFrame, output_path: Path, format_name: 
         ET.ElementTree(root).write(output_path, encoding="utf-8", xml_declaration=True)
         return
     if format_name == "pdf":
-        report_core.create_pdf_from_dataframe(dataframe, str(output_path))
+        services = get_services()
+        services.report.reporter.create_pdf_from_dataframe(dataframe, str(output_path))
         return
     raise CLIValidationError(f"Unsupported export format: {format_name}")
 
 
 def _choose_source_metadata(source: str) -> tuple[str, dict[str, Any], dict[str, Any] | None]:
+    services = get_services()
     source_path = Path(source)
     if source_path.exists() and source_path.is_file():
-        metadata = extractor_core.extract(str(source_path))
-        if not isinstance(metadata, dict) or "Error" in metadata:
-            raise CLIValidationError(metadata.get("Error", "Extraction failed."))
-        return str(source_path), metadata, None
+        res = services.extraction.extract_file(str(source_path), persist=False)
+        if not res.success or not isinstance(res.metadata, dict) or "Error" in res.metadata:
+            raise CLIValidationError(res.error or "Extraction failed.")
+        return str(source_path), res.metadata, None
 
     if source_path.exists() and source_path.is_dir():
         raise CLIValidationError("Report source must be a file or database record id.")
@@ -300,8 +397,9 @@ def main(
     ctx: typer.Context,
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show extra diagnostics."),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Reduce output to essentials."),
+    db_path: str | None = typer.Option(None, "--db-path", help="Custom SQLite database path to use."),
 ) -> None:
-    state = _set_state_from_context(ctx, verbose=verbose, quiet=quiet)
+    state = _set_state_from_context(ctx, verbose=verbose, quiet=quiet, db_path=db_path)
     _emit_header(state)
 
     if ctx.invoked_subcommand is None:
@@ -311,8 +409,10 @@ def main(
                 [
                     "tracelens extract file.pdf",
                     "tracelens analyze file.pdf",
+                    "tracelens sanitize file.pdf",
                     "tracelens report 12",
                     "tracelens history",
+                    "tracelens analytics",
                     "tracelens export json --output history.json",
                 ],
                 style="bright_cyan",
@@ -327,6 +427,7 @@ def extract(
     recursive: bool = typer.Option(True, "--recursive/--flat", help="Scan folders recursively."),
 ) -> None:
     state = _get_state()
+    services = get_services(state)
     logger.info("Extract command invoked for targets: %s (save_to_db=%s, recursive=%s)", targets, not no_save, recursive)
     try:
         files = collect_files(targets, recursive=recursive)
@@ -343,19 +444,20 @@ def extract(
     if len(files) == 1:
         file_path = files[0]
         with console.status(f"Extracting metadata from {file_path.name}...", spinner="dots"):
-            metadata, db_row = _extract_metadata(str(file_path), save_to_db=not no_save)
-        if not isinstance(metadata, dict) or "Error" in metadata:
-            _print_error(metadata.get("Error", "Extraction failed."))
+            result = services.extraction.extract_file(str(file_path), persist=not no_save)
+
+        if not result.success:
+            _print_error(result.error or "Extraction failed.")
             raise typer.Exit(code=1)
 
         logger.info("Successfully extracted metadata for %s", file_path)
-        console.print(mapping_table(f"Metadata for {file_path.name}", metadata))
+        console.print(mapping_table(f"Metadata for {file_path.name}", result.metadata))
         summary_lines = [
             f"File: {file_path}",
             f"Saved to database: {'no' if no_save else 'yes'}",
         ]
-        if db_row:
-            summary_lines.append(f"Record ID: {db_row[0]}")
+        if result.db_record_id:
+            summary_lines.append(f"Record ID: {result.db_record_id}")
         console.print(summary_panel("Extraction Complete", summary_lines, style="green"))
         return
 
@@ -372,35 +474,40 @@ def extract(
     with Progress(*progress_columns, console=console) as progress:
         task = progress.add_task("Scanning files", total=len(files))
         for file_path in files:
-            metadata, _ = _extract_metadata(str(file_path), save_to_db=not no_save)
-            if not isinstance(metadata, dict) or "Error" in metadata:
+            result = services.extraction.extract_file(str(file_path), persist=not no_save)
+            if not result.success:
                 failed += 1
-                logger.warning("Failed extraction on batch file: %s", file_path)
+                logger.warning("Failed extraction on batch file: %s (%s)", file_path, result.error)
             else:
-                entries.append({"file_path": str(file_path), "metadata": metadata})
+                entries.append({"file_path": str(file_path), "metadata": result.metadata})
                 logger.debug("Extracted metadata for: %s", file_path)
                 if state.verbose:
                     console.print(f"[cyan]Processed[/cyan] {file_path}")
             progress.advance(task)
 
     logger.info("Batch extraction completed: %d successful, %d failed", len(entries), failed)
-    summary = risk_core.analyze_batch(entries) if entries else {"total_files": 0, "risk_counts": {"LOW": 0, "MEDIUM": 0, "HIGH": 0}}
-    counts = summary.get("risk_counts", {})
+    batch_risk = services.risk.analyze_batch(entries) if entries else None
+    low_cnt = batch_risk.low_risk_count if batch_risk else 0
+    med_cnt = batch_risk.medium_risk_count if batch_risk else 0
+    high_cnt = batch_risk.high_risk_count if batch_risk else 0
+
     console.print(
         summary_panel(
             "Batch Extraction Summary",
             [
                 f"Successful: {len(entries)}",
                 f"Failed: {failed}",
-                f"LOW: {counts.get('LOW', 0)}",
-                f"MEDIUM: {counts.get('MEDIUM', 0)}",
-                f"HIGH: {counts.get('HIGH', 0)}",
+                f"LOW: {low_cnt}",
+                f"MEDIUM: {med_cnt}",
+                f"HIGH: {high_cnt}",
             ],
             style="green",
         )
     )
-    if state.verbose and summary.get("highest_risk"):
-        console.print(summary_panel("Highest Risk Item", [json.dumps(summary["highest_risk"], indent=2, default=str)], style="yellow"))
+    if state.verbose and batch_risk and batch_risk.assessments:
+        highest = max(batch_risk.assessments, key=lambda a: a.risk_score, default=None)
+        if highest:
+            console.print(summary_panel("Highest Risk Item", [json.dumps(highest.to_dict(), indent=2, default=str)], style="yellow"))
 
 
 @app.command()
@@ -409,6 +516,7 @@ def analyze(
     recursive: bool = typer.Option(True, "--recursive/--flat", help="Scan folders recursively."),
 ) -> None:
     state = _get_state()
+    services = get_services(state)
     logger.info("Analyze command invoked for targets: %s (recursive=%s)", targets, recursive)
     try:
         files = collect_files(targets, recursive=recursive)
@@ -420,8 +528,8 @@ def analyze(
         _print_warning("No files were found in the provided target(s).")
         raise typer.Exit(code=1)
 
-
-    analyses: list[dict[str, Any]] = []
+    analyses: list[RiskAssessment] = []
+    failed_items: list[tuple[str, str]] = []
     progress_columns = [
         SpinnerColumn(style="cyan"),
         TextColumn("[bold cyan]{task.description}"),
@@ -433,38 +541,45 @@ def analyze(
     with Progress(*progress_columns, console=console) as progress:
         task = progress.add_task("Analyzing files", total=len(files))
         for file_path in files:
-            metadata = extractor_core.extract(str(file_path))
-            if not isinstance(metadata, dict) or "Error" in metadata:
-                analyses.append({"file_name": file_path.name, "risk_score": 0, "risk_level": "ERROR", "reasons": [metadata.get("Error", "Extraction failed.")]})
+            ext_res = services.extraction.extract_file(str(file_path), persist=False)
+            if not ext_res.success:
+                failed_items.append((file_path.name, ext_res.error or "Extraction failed."))
             else:
-                analyses.append(risk_core.analyze_metadata(metadata, str(file_path)))
+                assessment = services.risk.analyze_metadata(ext_res.metadata, str(file_path))
+                analyses.append(assessment)
             progress.advance(task)
 
-    if len(analyses) == 1:
+    if len(files) == 1:
+        if failed_items:
+            _print_error(failed_items[0][1])
+            raise typer.Exit(code=1)
         analysis = analyses[0]
-        console.print(risk_table(analysis))
-        reasons = analysis.get("reasons", []) or []
+        console.print(risk_table(analysis.to_dict()))
+        reasons = analysis.reasons or []
         if reasons:
             console.print(summary_panel("Reasons", [f"- {reason}" for reason in reasons], style="yellow"))
-        timeline = analysis.get("timeline", []) or []
+        timeline = analysis.timeline or []
         if timeline:
             console.print(timeline_table(timeline))
+        suggestions = services.risk.get_remediation_suggestions(analysis)
+        if suggestions:
+            console.print(summary_panel("Remediation Suggestions", [f"- {s}" for s in suggestions], style="cyan"))
         console.print(
             summary_panel(
                 "Analysis Complete",
                 [
-                    f"File: {analysis.get('file_name', '')}",
-                    f"Risk Score: {analysis.get('risk_score', 0)}/100",
-                    f"Risk Level: {analysis.get('risk_level', 'N/A')}",
+                    f"File: {analysis.file_name or files[0].name}",
+                    f"Risk Score: {analysis.risk_score}/100",
+                    f"Risk Level: {analysis.risk_level}",
                 ],
                 style="green",
             )
         )
         return
 
-    summary_counts = {"LOW": 0, "MEDIUM": 0, "HIGH": 0, "ERROR": 0}
-    for analysis in analyses:
-        summary_counts[analysis.get("risk_level", "ERROR")] = summary_counts.get(analysis.get("risk_level", "ERROR"), 0) + 1
+    summary_counts = {"LOW": 0, "MEDIUM": 0, "HIGH": 0, "ERROR": len(failed_items)}
+    for item in analyses:
+        summary_counts[item.risk_level] = summary_counts.get(item.risk_level, 0) + 1
 
     console.print(
         summary_panel(
@@ -479,8 +594,83 @@ def analyze(
             style="green",
         )
     )
-    if state.verbose:
-        console.print(records_table([{"id": index + 1, "file_name": item.get("file_name", ""), "file_type": item.get("risk_level", ""), "file_size_formatted": item.get("risk_score", ""), "extracted_at": "", "file_path": ""} for index, item in enumerate(analyses)], title="Analysis Results"))
+    if state.verbose and analyses:
+        console.print(
+            records_table(
+                [
+                    {
+                        "id": index + 1,
+                        "file_name": item.file_name,
+                        "file_type": item.risk_level,
+                        "file_size_formatted": str(item.risk_score),
+                        "extracted_at": "",
+                        "file_path": item.file_path,
+                    }
+                    for index, item in enumerate(analyses)
+                ],
+                title="Analysis Results",
+            )
+        )
+
+
+@app.command()
+def sanitize(
+    targets: list[str] = typer.Argument(..., help="One or more files or folders to sanitize."),
+    backup: bool = typer.Option(True, "--backup/--no-backup", help="Create a .bak backup file before sanitizing."),
+    recursive: bool = typer.Option(True, "--recursive/--flat", help="Scan folders recursively."),
+) -> None:
+    """Sanitize files by stripping sensitive metadata tags (GPS, camera, author, editing traces)."""
+    state = _get_state()
+    services = get_services(state)
+    logger.info("Sanitize command invoked for targets: %s (backup=%s, recursive=%s)", targets, backup, recursive)
+    try:
+        files = collect_files(targets, recursive=recursive)
+    except CLIValidationError as error:
+        _print_error(str(error))
+        raise typer.Exit(code=1) from error
+
+    if not files:
+        _print_warning("No files were found in the provided target(s).")
+        raise typer.Exit(code=1)
+
+    sanitized = 0
+    failed = 0
+    results: list[str] = []
+
+    progress_columns = [
+        SpinnerColumn(style="cyan"),
+        TextColumn("[bold cyan]{task.description}"),
+        BarColumn(bar_width=None),
+        TaskProgressColumn(),
+        TimeRemainingColumn(),
+    ]
+
+    with Progress(*progress_columns, console=console) as progress:
+        task = progress.add_task("Sanitizing files", total=len(files))
+        for file_path in files:
+            success, msg = services.sanitize_file(str(file_path), backup=backup)
+            if success:
+                sanitized += 1
+                results.append(f"Sanitized: {file_path.name}")
+            else:
+                failed += 1
+                results.append(f"Failed: {file_path.name} - {msg}")
+            progress.advance(task)
+
+    console.print(
+        summary_panel(
+            "Sanitization Summary",
+            [
+                f"Total targets: {len(files)}",
+                f"Successfully sanitized: {sanitized}",
+                f"Failed/Unsupported: {failed}",
+                f"Backup enabled: {'yes' if backup else 'no'}",
+            ] + (results[:10] if not state.quiet else []),
+            style="green" if failed == 0 else "yellow",
+        )
+    )
+    if sanitized == 0 and failed > 0:
+        raise typer.Exit(code=1)
 
 
 @app.command()
@@ -491,6 +681,7 @@ def edit(
     write_file: bool = typer.Option(True, help="Write changes back to the source file when supported."),
     save_db: bool = typer.Option(True, help="Save changes to the metadata database."),
 ) -> None:
+    services = get_services()
     try:
         source = require_file(file_path)
     except CLIValidationError as error:
@@ -520,27 +711,34 @@ def edit(
         _print_warning("No metadata changes were supplied.")
         raise typer.Exit(code=1)
 
-    base_metadata = extractor_core.extract(str(source))
-    if not isinstance(base_metadata, dict) or "Error" in base_metadata:
-        latest_record = _load_latest_record_for_path(str(source))
-        if latest_record and latest_record.get("full_metadata"):
-            base_metadata = latest_record["full_metadata"]
+    ext_res = services.extraction.extract_file(str(source), persist=False)
+    if ext_res.success and ext_res.metadata:
+        base_metadata = ext_res.metadata
+    else:
+        latest_record = services.history.get_latest_by_path(str(source))
+        if latest_record and latest_record.full_metadata:
+            base_metadata = latest_record.full_metadata
         else:
-            _print_error(base_metadata.get("Error", "Extraction failed."))
+            _print_error(ext_res.error or "Extraction failed.")
             raise typer.Exit(code=1)
 
-    editable_text = editor_core.get_editable_text(str(source), base_metadata)
-    parsed = editor_core.parse_editor_text(editable_text)
+    editable_text = services.editor.get_editable_text((str(source), base_metadata))
+    parsed = services.editor.parse_editor_text(editable_text)
     parsed["metadata"].update(updates)
+
+    is_valid, val_msg = services.editor.validate_metadata(parsed)
+    if not is_valid:
+        _print_error(f"Metadata validation error: {val_msg}")
+        raise typer.Exit(code=1)
 
     db_result = (False, "Database update disabled")
     file_result = (False, "File write disabled")
 
     logger.info("Editing metadata for source: %s (updates=%s, save_db=%s, write_file=%s)", source, updates, save_db, write_file)
     if save_db:
-        db_result = editor_core.save_edited_metadata(str(source), parsed)
+        db_result = services.editor.save_to_database(str(source), parsed)
     if write_file:
-        file_result = editor_core.write_metadata_to_file(str(source), parsed["metadata"])
+        file_result = services.editor.write_to_file(str(source), parsed, backup=True)
 
     logger.info("Edit result - Database: %s, File: %s", db_result, file_result)
     changed_fields = [f"{key}: {value}" for key, value in updates.items()]
@@ -565,6 +763,7 @@ def report_command(
     format_name: str = typer.Option("both", "--format", "-f", case_sensitive=False, help="Output format: txt, pdf, or both."),
     output_dir: str = typer.Option(str(PROJECT_ROOT), "--output-dir", help="Directory where reports should be written."),
 ) -> None:
+    services = get_services()
     logger.info("Report command invoked for source: %s (format=%s, output_dir=%s)", source, format_name, output_dir)
     try:
         file_path_text, metadata, record = _choose_source_metadata(source)
@@ -575,8 +774,8 @@ def report_command(
     output_directory = Path(output_dir).expanduser()
     output_directory.mkdir(parents=True, exist_ok=True)
 
-    analysis = risk_core.analyze_metadata(metadata, file_path_text)
-    text_report = report_core.generate_report_text(metadata, file_path_text, risk_analysis=analysis)
+    analysis = services.risk.analyze_metadata(metadata, file_path_text)
+    text_report = services.report.generate_text_report(metadata, file_path_text, risk_analysis=analysis.to_dict())
     base_name = Path(file_path_text).stem or "tracelens_report"
     timestamp = _default_timestamp()
     outputs: list[Path] = []
@@ -589,7 +788,7 @@ def report_command(
 
     if format_name.lower() in {"pdf", "both"}:
         pdf_path = output_directory / f"{base_name}_report_{timestamp}.pdf"
-        report_core.create_pdf_report_from_text(text_report, str(pdf_path))
+        services.report.generate_pdf_report(metadata, file_path_text, str(pdf_path), risk_analysis=analysis.to_dict())
         outputs.append(pdf_path)
         logger.debug("Generated PDF report: %s", pdf_path)
 
@@ -612,6 +811,7 @@ def export(
     sort: str = typer.Option("Date (Newest)", "--sort", help="Sort order for the export set."),
     limit: int = typer.Option(0, "--limit", min=0, help="Maximum records to export. 0 means no limit."),
 ) -> None:
+    services = get_services()
     logger.info("Export command invoked (format=%s, output=%s, limit=%s)", format_name, output, limit)
     try:
         rows = _history_rows(limit=limit or 0, query=query, file_type=file_type, date_filter=date_filter, sort=sort)
@@ -656,7 +856,10 @@ def export(
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     try:
-        _write_export_file(dataframe, output_path, format_normalized)
+        if format_normalized in {"json", "xml", "csv", "excel"}:
+            services.report.export_records_dataframe(dataframe, format_normalized, str(output_path))
+        else:
+            _write_export_file(dataframe, output_path, format_normalized)
         logger.info("Export completed successfully: %d records exported to %s", len(dataframe), output_path)
     except Exception as error:
         logger.exception("Export failed for %s: %s", output_path, error)
@@ -665,6 +868,54 @@ def export(
 
     console.print(summary_panel("Export Complete", [f"Rows exported: {len(dataframe)}", f"Output: {output_path}"], style="green"))
 
+
+@app.command(name="analytics")
+def analytics_command(
+    query: str = typer.Option("", "--query", help="Filter analytics by text search."),
+    file_type: str = typer.Option("all", "--file-type", help="Filter by file type extension."),
+    date_range: str = typer.Option("all", "--date-range", help="Date filter: all, today, week, month, year."),
+) -> None:
+    """Compute and display aggregate metadata analytics, privacy metrics, and dashboard intelligence."""
+    services = get_services()
+    summary = services.analytics.get_dashboard_metrics(date_range=date_range, file_type=file_type, search_query=query)
+
+    console.print(
+        summary_panel(
+            "TraceLens Analytics Dashboard",
+            [
+                f"Total Analyzed Files: {summary.total_files}",
+                f"Total Storage Volume: {summary.total_size_formatted}",
+                f"Average File Size: {summary.avg_size_formatted}",
+                f"Average Risk Score: {summary.avg_risk_score}/100",
+            ],
+            style="bright_cyan",
+        )
+    )
+
+    risk_lines = [
+        f"HIGH: {summary.risk_distribution.get('HIGH', 0)}",
+        f"MEDIUM: {summary.risk_distribution.get('MEDIUM', 0)}",
+        f"LOW: {summary.risk_distribution.get('LOW', 0)}",
+    ]
+    console.print(summary_panel("Privacy Risk Breakdown", risk_lines, style="yellow" if summary.risk_distribution.get("HIGH", 0) > 0 else "green"))
+
+    if summary.file_type_counts:
+        type_lines = [f"{ftype}: {count}" for ftype, count in sorted(summary.file_type_counts.items(), key=lambda x: x[1], reverse=True)]
+        console.print(summary_panel("File Type Distribution", type_lines, style="cyan"))
+
+    if summary.top_threats:
+        threat_lines = [f"- {t.get('reason', '')} ({t.get('count', 0)} occurrences)" for t in summary.top_threats]
+        console.print(summary_panel("Top Discovered Threats", threat_lines, style="red"))
+
+
+@app.command(name="stats")
+def stats_command(
+    query: str = typer.Option("", "--query", help="Filter analytics by text search."),
+    file_type: str = typer.Option("all", "--file-type", help="Filter by file type extension."),
+    date_range: str = typer.Option("all", "--date-range", help="Date filter: all, today, week, month, year."),
+) -> None:
+    """Display aggregate metadata analytics and metrics (alias for analytics)."""
+    analytics_command(query=query, file_type=file_type, date_range=date_range)
 
 
 @history_app.callback(invoke_without_command=True)
@@ -686,9 +937,10 @@ def history(
 
 @history_app.command("delete")
 def history_delete(record_id: int = typer.Argument(..., help="Database record ID to remove."), yes: bool = typer.Option(False, "--yes", help="Skip the confirmation prompt.")) -> None:
+    services = get_services()
     if not yes and not typer.confirm(f"Delete history record {record_id}?"):
         raise typer.Exit(code=1)
-    if db_core.delete_record(record_id):
+    if services.history.delete_record(record_id):
         console.print(summary_panel("History Updated", [f"Deleted record ID {record_id}"], style="green"))
         return
     _print_warning(f"Record {record_id} was not found.")
@@ -697,9 +949,10 @@ def history_delete(record_id: int = typer.Argument(..., help="Database record ID
 
 @history_app.command("clear")
 def history_clear(yes: bool = typer.Option(False, "--yes", help="Skip the confirmation prompt.")) -> None:
+    services = get_services()
     if not yes and not typer.confirm("Clear all metadata history?"):
         raise typer.Exit(code=1)
-    if db_core.clear_metadata():
+    if services.history.clear_history():
         console.print(summary_panel("History Cleared", ["All metadata records were removed from the database."], style="green"))
         return
     _print_error("Failed to clear metadata history.")
@@ -708,7 +961,8 @@ def history_clear(yes: bool = typer.Option(False, "--yes", help="Skip the confir
 
 @history_app.command("stats")
 def history_stats() -> None:
-    stats = db_core.get_database_stats()
+    services = get_services()
+    stats = services.history.get_database_stats()
     file_types = stats.get("file_types", {}) or {}
     console.print(
         summary_panel(
@@ -723,7 +977,8 @@ def history_stats() -> None:
 def config(ctx: typer.Context) -> None:
     if ctx.invoked_subcommand is not None:
         return
-    db_path = Path(db_core.db_manager.db_path)
+    services = get_services()
+    db_path = Path(services.database.db_path)
     log_file_path = get_log_file_path()
     console.print(
         summary_panel(
@@ -761,7 +1016,6 @@ def show_logs(
             _print_error("Failed to clear log file.")
         return
 
-
     recent = get_recent_logs(max_entries=lines)
     if not recent:
         console.print(
@@ -794,12 +1048,17 @@ def config_logs(
 
 @config_app.command("optimize")
 def config_optimize() -> None:
-    if db_core.optimize_database():
-        console.print(summary_panel("Configuration", ["SQLite optimization completed successfully."], style="green"))
+    services = get_services()
+    res = services.history.optimize_database()
+    if isinstance(res, tuple):
+        success, msg = res
+    else:
+        success, msg = bool(res), "Optimization completed"
+    if success:
+        console.print(summary_panel("Configuration", [f"SQLite optimization completed: {msg}"], style="green"))
         return
-    _print_error("Failed to optimize the database.")
+    _print_error(f"Failed to optimize the database: {msg}")
     raise typer.Exit(code=1)
-
 
 
 def _run_gui_main() -> None:
@@ -843,9 +1102,11 @@ def help_text() -> None:
             [
                 "extract    Extract metadata from files or folders",
                 "analyze    Analyze privacy risk for files or folders",
+                "sanitize   Strip sensitive metadata tags from files",
                 "edit       Update metadata fields and save changes",
                 "report     Generate TXT/PDF reports from a file or record",
                 "history    Inspect and manage history records",
+                "analytics  Show intelligent aggregate analytics & metrics",
                 "export     Export filtered history to common formats",
                 "config     Show or optimize runtime configuration",
                 "gui        Launch the TraceLens desktop UI",
@@ -857,7 +1118,7 @@ def help_text() -> None:
 
 def quick_extract() -> None:
     file_path = prompt_path("Enter file path")
-    metadata, _ = extractor_core.extract_and_store(file_path)
+    metadata, _ = extractor.extract_and_store(file_path)
 
     if not metadata or "Error" in metadata:
         msg = metadata.get("Error", "Extraction failed.") if isinstance(metadata, dict) else "Extraction failed."
@@ -870,14 +1131,14 @@ def quick_extract() -> None:
 
 def analyze_single_file_risk() -> None:
     file_path = prompt_path("Enter file path")
-    metadata = extractor_core.extract(file_path)
+    metadata = extractor.extract(file_path)
 
     if not metadata or "Error" in metadata:
         msg = metadata.get("Error", "Extraction failed.") if isinstance(metadata, dict) else "Extraction failed."
         _print_error(msg)
         return
 
-    analysis = risk_core.analyze_metadata(metadata, file_path)
+    analysis = risk_analyzer.analyze_metadata(metadata, file_path)
     console.print(risk_table(analysis))
     console.print(f"File: {analysis.get('file_name', '')}")
     console.print(f"Risk Score: {analysis.get('risk_score', 0)}/100")
@@ -894,15 +1155,15 @@ def analyze_single_file_risk() -> None:
 
 def generate_report_cli() -> None:
     file_path = prompt_path("Enter file path")
-    metadata = extractor_core.extract(file_path)
+    metadata = extractor.extract(file_path)
 
     if not metadata or "Error" in metadata:
         msg = metadata.get("Error", "Extraction failed.") if isinstance(metadata, dict) else "Extraction failed."
         _print_error(msg)
         return
 
-    analysis = risk_core.analyze_metadata(metadata, file_path)
-    text = report_core.generate_report_text(metadata, file_path, risk_analysis=analysis)
+    analysis = risk_analyzer.analyze_metadata(metadata, file_path)
+    text = report.generate_report_text(metadata, file_path, risk_analysis=analysis)
 
     console.print(summary_panel("Report Preview", [_preview_report_text(text)], style="bright_cyan"))
     choice = input("Save report as (txt/pdf/both/none) [both]: ").strip().lower() or "both"
@@ -917,7 +1178,7 @@ def generate_report_cli() -> None:
         _print_success(f"TXT saved: {txt_out}")
 
     if choice in {"pdf", "both"}:
-        report_core.create_pdf_report_from_text(text, str(pdf_out))
+        report.create_pdf_report_from_text(text, str(pdf_out))
         _print_success(f"PDF saved: {pdf_out}")
 
     if choice not in {"txt", "pdf", "both", "none"}:
@@ -955,15 +1216,15 @@ def batch_scan_folder() -> None:
     with Progress(*progress_columns, console=console) as progress:
         task = progress.add_task("Processing files", total=len(files))
         for file_path in files:
-            metadata = extractor_core.extract(str(file_path))
+            metadata = extractor.extract(str(file_path))
             if not metadata or "Error" in metadata:
                 failed += 1
             else:
-                db_core.insert_metadata(str(file_path), metadata)
+                db.insert_metadata(str(file_path), metadata)
                 entries.append({"file_path": str(file_path), "metadata": metadata})
             progress.advance(task)
 
-    summary = risk_core.analyze_batch(entries) if entries else {"risk_counts": {"LOW": 0, "MEDIUM": 0, "HIGH": 0}}
+    summary = risk_analyzer.analyze_batch(entries) if entries else {"risk_counts": {"LOW": 0, "MEDIUM": 0, "HIGH": 0}}
     counts = summary.get("risk_counts", {})
     console.print(summary_panel("Batch Scan Summary", [f"Successful: {len(entries)}", f"Failed: {failed}", f"LOW: {counts.get('LOW', 0)}", f"MEDIUM: {counts.get('MEDIUM', 0)}", f"HIGH: {counts.get('HIGH', 0)}"], style="green"))
 
@@ -977,7 +1238,7 @@ def view_recent_history() -> None:
         except ValueError:
             _print_warning("Invalid number. Showing 10 records.")
 
-    rows = db_core.get_recent_records(limit=limit)
+    rows = db.get_recent_records(limit=limit)
     if not rows:
         _print_warning("No history records found.")
         return

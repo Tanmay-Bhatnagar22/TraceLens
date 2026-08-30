@@ -102,3 +102,15 @@ def get_service_container(db_path: str | None = None) -> ServiceContainer:
     if _default_container is None:
         _default_container = ServiceContainer()
     return _default_container
+
+
+def set_service_container(container: ServiceContainer | None) -> None:
+    """Set or override the global service container singleton."""
+    global _default_container
+    _default_container = container
+
+
+def reset_service_container() -> None:
+    """Reset the global service container singleton to None."""
+    global _default_container
+    _default_container = None
