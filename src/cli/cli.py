@@ -19,7 +19,10 @@ from typing import Any
 import click
 import pandas as pd
 import typer
+from rich import box
+from rich.panel import Panel
 from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn, TimeRemainingColumn
+from rich.table import Table
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 ROOT_DIR = PROJECT_ROOT
@@ -406,13 +409,15 @@ def main(
             summary_panel(
                 "Quick Start",
                 [
-                    "tracelens extract file.pdf",
-                    "tracelens analyze file.pdf",
-                    "tracelens sanitize file.pdf",
-                    "tracelens report 12",
-                    "tracelens history",
-                    "tracelens analytics",
-                    "tracelens export json --output history.json",
+                    "tracelens help                # View complete CLI workflow & command guide",
+                    "tracelens help <command>      # Detailed options & examples for any command",
+                    "tracelens extract file.pdf    # Ingest metadata into database",
+                    "tracelens analyze file.pdf    # Assess privacy risks & scores",
+                    "tracelens sanitize file.pdf   # Remove sensitive metadata tags",
+                    "tracelens report 12           # Generate TXT and PDF audit reports",
+                    "tracelens history             # Browse past extractions",
+                    "tracelens analytics           # View dashboard intelligence",
+                    "tracelens export json         # Export history records",
                 ],
                 style="bright_cyan",
             )
@@ -1100,25 +1105,426 @@ def gui() -> None:
         _print_error(f"Failed to launch GUI: {exc}")
 
 
-def help_text() -> None:
-    console.print(
-        summary_panel(
-            "Commands",
-            [
-                "extract    Extract metadata from files or folders",
-                "analyze    Analyze privacy risk for files or folders",
-                "sanitize   Strip sensitive metadata tags from files",
-                "edit       Update metadata fields and save changes",
-                "report     Generate TXT/PDF reports from a file or record",
-                "history    Inspect and manage history records",
-                "analytics  Show intelligent aggregate analytics & metrics",
-                "export     Export filtered history to common formats",
-                "config     Show or optimize runtime configuration",
-                "gui        Launch the TraceLens desktop UI",
-            ],
-            style="bright_cyan",
-        )
+HELP_TOPICS: dict[str, dict[str, Any]] = {
+    "extract": {
+        "title": "Metadata Extraction & Ingestion",
+        "phase": "1. Ingest",
+        "summary": "Extract raw metadata properties from files or folders and store records in SQLite history.",
+        "syntax": "tracelens extract <targets...> [OPTIONS]",
+        "arguments": [
+            ("<targets...>", "One or more file or directory paths to inspect."),
+        ],
+        "options": [
+            ("--no-save", "Extract and display metadata without storing in the SQLite database."),
+            ("--recursive / --flat", "Scan subdirectories recursively (default: --recursive)."),
+        ],
+        "examples": [
+            "tracelens extract photo.jpg",
+            "tracelens extract ./documents/ --no-save",
+            "tracelens extract file1.pdf file2.png ./photos/ --recursive",
+        ],
+        "flow": "Ingests metadata into the database. Run 'tracelens analyze <file>' next to audit privacy risks, or 'tracelens report <file>' to generate documentation.",
+        "related": ["analyze", "report", "history"],
+    },
+    "analyze": {
+        "title": "Privacy & Forensic Risk Analysis",
+        "phase": "2. Audit",
+        "summary": "Run rule-based privacy assessments on metadata to identify sensitive leaks and forensic timelines.",
+        "syntax": "tracelens analyze <targets...> [OPTIONS]",
+        "arguments": [
+            ("<targets...>", "One or more file or directory paths to analyze."),
+        ],
+        "options": [
+            ("--threshold <int>", "Filter and display only files exceeding a specific risk score (0-100)."),
+            ("--no-save", "Perform risk analysis without storing extraction records."),
+            ("--recursive / --flat", "Scan directories recursively (default: --recursive)."),
+        ],
+        "examples": [
+            "tracelens analyze document.pdf",
+            "tracelens analyze ./evidence/ --threshold 50",
+            "tracelens analyze photo.jpg --no-save",
+        ],
+        "flow": "Calculates risk scores (0-100), risk levels (LOW/MEDIUM/HIGH), matched security rules (GPS, camera serials, author identities), and forensic timelines. If risks are detected, run 'tracelens sanitize <file>'.",
+        "related": ["extract", "sanitize", "report"],
+    },
+    "sanitize": {
+        "title": "Metadata Stripping & Privacy Redaction",
+        "phase": "3. Remediate",
+        "summary": "Remove identifying metadata tags (EXIF, GPS coordinates, author, camera serials) from files.",
+        "syntax": "tracelens sanitize <targets...> [OPTIONS]",
+        "arguments": [
+            ("<targets...>", "Files or folders containing files to sanitize."),
+        ],
+        "options": [
+            ("--dry-run", "Preview which metadata tags would be removed without modifying files."),
+            ("--backup / --no-backup", "Create a .bak copy of original files before stripping (default: backup enabled)."),
+            ("--recursive / --flat", "Recursively sanitize files in directories (default: --recursive)."),
+        ],
+        "examples": [
+            "tracelens sanitize image.jpg",
+            "tracelens sanitize ./public_release/ --dry-run",
+            "tracelens sanitize document.pdf --no-backup",
+        ],
+        "flow": "Strips sensitive metadata tags so files are safe to share publicly. Follow up with 'tracelens analyze <file>' to verify risk score is reduced to 0.",
+        "related": ["analyze", "edit", "extract"],
+    },
+    "edit": {
+        "title": "Metadata Field Editing & Anonymization",
+        "phase": "3. Remediate",
+        "summary": "Update, replace, or insert specific metadata keys into a file and/or database record.",
+        "syntax": "tracelens edit <source> [OPTIONS]",
+        "arguments": [
+            ("<source>", "Target file path OR database history record ID."),
+        ],
+        "options": [
+            ("-s, --set KEY=VALUE", "Set or overwrite a metadata field (e.g. -s Author=\"Redacted\"). Can repeat."),
+            ("--write-file / --no-write-file", "Persist metadata changes to the physical file on disk (default: enabled)."),
+            ("--no-db", "Skip updating the SQLite history database record."),
+        ],
+        "examples": [
+            "tracelens edit document.pdf -s Author=\"Anonymous\" -s Company=\"Confidential\"",
+            "tracelens edit 42 -s Title=\"Reviewed Evidence Document\"",
+        ],
+        "flow": "Allows surgical modification or anonymization of specific metadata attributes without full stripping.",
+        "related": ["sanitize", "report", "history"],
+    },
+    "report": {
+        "title": "Comprehensive Audit & Forensic Reporting",
+        "phase": "4. Report",
+        "summary": "Generate formal plain-text (.txt) and publication-ready PDF (.pdf) audit reports.",
+        "syntax": "tracelens report <source> [OPTIONS]",
+        "arguments": [
+            ("<source>", "Target file path OR database history record ID."),
+        ],
+        "options": [
+            ("-f, --format [txt|pdf|both]", "Report output format (default: both)."),
+            ("--output-dir <path>", "Directory where report files will be written (default: current directory)."),
+        ],
+        "examples": [
+            "tracelens report evidence.pdf",
+            "tracelens report 150 --format both",
+            "tracelens report document.docx --format pdf --output-dir ./audit_reports",
+        ],
+        "flow": "Generates complete documentation including metadata tables, privacy risk evaluations, matched rules, and forensic timelines.",
+        "related": ["extract", "analyze", "export"],
+    },
+    "export": {
+        "title": "Structured Dataset Export",
+        "phase": "4. Export",
+        "summary": "Export filtered database history to industry-standard data formats.",
+        "syntax": "tracelens export <format> [OPTIONS]",
+        "arguments": [
+            ("<format>", "Export format: json, csv, xml, excel, or pdf."),
+        ],
+        "options": [
+            ("-o, --output <path>", "Destination file path for the exported dataset."),
+            ("--query <text>", "Filter records by matching text in file name or file path."),
+            ("--file-type <ext>", "Filter by file extension (e.g. pdf, jpg, docx, All)."),
+            ("--date-filter <period>", "Filter by time: 'All Time', 'Today', 'Past 7 Days', 'Past 30 Days'."),
+            ("--sort <order>", "Sort order: 'Date (Newest)', 'Date (Oldest)', 'File Name'."),
+            ("--limit <int>", "Maximum records to export (0 = unlimited)."),
+        ],
+        "examples": [
+            "tracelens export json --output history_dump.json",
+            "tracelens export excel --file-type pdf --query \"contract\"",
+            "tracelens export csv --limit 100",
+        ],
+        "flow": "Produces portable audit trails for compliance, external analysis in spreadsheets, or ingestion into external tools.",
+        "related": ["report", "history", "analytics"],
+    },
+    "history": {
+        "title": "History Record Management & Inspection",
+        "phase": "5. Monitor",
+        "summary": "Search, inspect, delete, and manage historical metadata extraction records.",
+        "syntax": "tracelens history [SUBCOMMAND] [OPTIONS]",
+        "arguments": [
+            ("[SUBCOMMAND]", "Optional subcommand: delete, clear, stats (default: list records)."),
+        ],
+        "options": [
+            ("--limit <int>", "Number of records to display (default: 20)."),
+            ("--query <text>", "Filter history by file name or path search."),
+            ("--file-type <ext>", "Filter by file extension."),
+            ("--date-filter <period>", "Filter by date range."),
+            ("--sort <order>", "Sort order."),
+            ("delete <id> [--yes]", "Delete a specific record by ID."),
+            ("clear [--yes]", "Delete all historical records from the database."),
+            ("stats", "Display total record counts grouped by file type."),
+        ],
+        "examples": [
+            "tracelens history",
+            "tracelens history --limit 50 --query \"evidence\"",
+            "tracelens history delete 142 --yes",
+            "tracelens history stats",
+        ],
+        "flow": "Query past investigations and reuse historical record IDs directly with 'tracelens report <id>' or 'tracelens edit <id>'.",
+        "related": ["report", "edit", "analytics"],
+    },
+    "analytics": {
+        "title": "Dashboard Metrics & Aggregate Intelligence",
+        "phase": "5. Monitor",
+        "summary": "Compute and display aggregate metadata analytics, privacy risk metrics, and trends.",
+        "syntax": "tracelens analytics [OPTIONS]",
+        "arguments": [],
+        "options": [
+            ("--date-range <range>", "Date filter: all, today, week, month, year (default: all)."),
+            ("--file-type <ext>", "Filter metrics by file extension (default: all)."),
+            ("--query <text>", "Filter analytics by text search."),
+        ],
+        "examples": [
+            "tracelens analytics",
+            "tracelens analytics --date-range month",
+            "tracelens analytics --file-type pdf",
+        ],
+        "flow": "Provides an executive summary of dataset health, risk score distribution (LOW/MED/HIGH), top risk factors, and file types.",
+        "related": ["stats", "history", "export"],
+    },
+    "stats": {
+        "title": "Quick Database Statistics",
+        "phase": "5. Monitor",
+        "summary": "Display a fast summary of database record counts and file type breakdown.",
+        "syntax": "tracelens stats",
+        "arguments": [],
+        "options": [],
+        "examples": [
+            "tracelens stats",
+        ],
+        "flow": "Convenient shortcut to check total records stored in the SQLite database.",
+        "related": ["analytics", "history"],
+    },
+    "config": {
+        "title": "Environment & Database Configuration",
+        "phase": "Utility",
+        "summary": "Inspect active configuration paths and optimize the SQLite database.",
+        "syntax": "tracelens config [SUBCOMMAND]",
+        "arguments": [
+            ("[SUBCOMMAND]", "Optional subcommand: optimize, logs."),
+        ],
+        "options": [
+            ("optimize", "Perform SQLite VACUUM and reindexing to reduce file size and speed up queries."),
+            ("logs", "Inspect recent log entries."),
+        ],
+        "examples": [
+            "tracelens config",
+            "tracelens config optimize",
+        ],
+        "flow": "Use 'optimize' periodically after large batch scans or record deletions to reclaim disk space.",
+        "related": ["logs", "history"],
+    },
+    "logs": {
+        "title": "Application Execution Logs",
+        "phase": "Utility",
+        "summary": "Inspect recent log messages, check log file path, or clear log buffer.",
+        "syntax": "tracelens logs [OPTIONS]",
+        "arguments": [],
+        "options": [
+            ("-n, --lines <int>", "Number of recent log lines to display (default: 50)."),
+            ("-p, --path", "Print absolute path to the active log file."),
+            ("--clear", "Clear log file on disk and in-memory log buffer."),
+        ],
+        "examples": [
+            "tracelens logs",
+            "tracelens logs -n 100",
+            "tracelens logs --path",
+            "tracelens logs --clear",
+        ],
+        "flow": "Helps troubleshoot unsupported formats, extraction warnings, or database connectivity issues.",
+        "related": ["config"],
+    },
+    "gui": {
+        "title": "TraceLens Graphical User Interface",
+        "phase": "Interface",
+        "summary": "Launch the desktop Tkinter application for visual inspection and analysis.",
+        "syntax": "tracelens gui",
+        "arguments": [],
+        "options": [],
+        "examples": [
+            "tracelens gui",
+        ],
+        "flow": "Opens the complete desktop UI with drag-and-drop file processing, risk dashboards, and timeline visualizations.",
+        "related": ["extract", "analyze"],
+    },
+    "workflow": {
+        "title": "TraceLens End-to-End Pipeline & Workflows",
+        "phase": "Overview",
+        "summary": "Detailed walkthrough of how TraceLens commands connect into end-to-end operational workflows.",
+        "syntax": "tracelens help workflow",
+        "arguments": [],
+        "options": [],
+        "examples": [
+            "tracelens help workflow",
+            "tracelens help extract",
+            "tracelens help sanitize",
+        ],
+        "flow": "Explains the Ingest -> Audit -> Remediate -> Document -> Monitor lifecycle.",
+        "related": ["extract", "analyze", "sanitize", "report", "history"],
+    },
+}
+
+
+def _render_workflow_panel() -> Panel:
+    """Build the visual pipeline architecture diagram."""
+    lines = [
+        "[bold cyan]STAGE 1: INGEST[/bold cyan]       [white]tracelens extract <targets>[/white]       Scan & persist metadata to SQLite",
+        "      |",
+        "      v",
+        "[bold yellow]STAGE 2: AUDIT[/bold yellow]        [white]tracelens analyze <targets>[/white]       Evaluate privacy score (0-100) & leaks",
+        "      |",
+        "      v",
+        "[bold red]STAGE 3: REMEDIATE[/bold red]   [white]tracelens sanitize <targets>[/white]      Strip sensitive tags (EXIF/GPS/Device)",
+        "                     [white]tracelens edit <source> -s K=V[/white]    Surgically edit or anonymize attributes",
+        "      |",
+        "      v",
+        "[bold magenta]STAGE 4: DOCUMENT[/bold magenta]    [white]tracelens report <source>[/white]         Create formatted PDF & TXT audit reports",
+        "                     [white]tracelens export <format>[/white]         Export dataset to JSON, CSV, or Excel",
+        "      |",
+        "      v",
+        "[bold green]STAGE 5: MONITOR[/bold green]     [white]tracelens history[/white]                 Search, inspect & manage past scans",
+        "                     [white]tracelens analytics / stats[/white]       View risk distributions & metrics",
+    ]
+    return Panel(
+        "\n".join(lines),
+        title="TraceLens CLI Workflow Pipeline",
+        border_style="bright_cyan",
+        box=box.ROUNDED,
+        padding=(1, 2),
     )
+
+
+def _render_command_table() -> Table:
+    """Build the master command reference table."""
+    table = Table(
+        title="Command Reference",
+        box=box.ROUNDED,
+        show_lines=False,
+        header_style="bold bright_cyan",
+    )
+    table.add_column("Command", style="bold cyan", no_wrap=True)
+    table.add_column("Phase", style="yellow", no_wrap=True)
+    table.add_column("Description", style="white", overflow="fold")
+    table.add_column("Example Usage", style="green", no_wrap=False)
+
+    command_rows = [
+        ("extract", "1. Ingest", "Extract metadata from files/folders and store in database", "tracelens extract photo.jpg"),
+        ("analyze", "2. Audit", "Audit privacy risks, scores (0-100), and event timelines", "tracelens analyze file.pdf"),
+        ("sanitize", "3. Remediate", "Strip sensitive metadata tags (GPS, author, serials)", "tracelens sanitize photo.jpg"),
+        ("edit", "3. Remediate", "Update or anonymize specific metadata keys", "tracelens edit doc.pdf -s Author='Anon'"),
+        ("report", "4. Document", "Generate structured TXT & publication-ready PDF reports", "tracelens report 150 --format both"),
+        ("export", "4. Document", "Export history dataset to JSON, CSV, XML, Excel, or PDF", "tracelens export json -o out.json"),
+        ("history", "5. Monitor", "Search, inspect, delete, or clear scan history", "tracelens history --query 'secret'"),
+        ("analytics", "5. Monitor", "Show intelligence metrics, risk distribution, trends", "tracelens analytics --date-range month"),
+        ("stats", "5. Monitor", "Quick overview of database record counts", "tracelens stats"),
+        ("config", "Utility", "View environment config or optimize SQLite database", "tracelens config optimize"),
+        ("logs", "Utility", "Inspect, view path, or clear application logs", "tracelens logs -n 50"),
+        ("gui", "Interface", "Launch the desktop Tkinter graphical user interface", "tracelens gui"),
+    ]
+    for cmd, phase, desc, ex in command_rows:
+        table.add_row(cmd, phase, desc, ex)
+    return table
+
+
+def _render_scenarios_panel() -> Panel:
+    """Build the common operational workflows panel."""
+    scenarios = [
+        "[bold cyan]1. Pre-Publication Privacy Sanitization[/bold cyan] (Strip metadata before sharing):",
+        "   [white]tracelens extract photo.jpg[/white]   ->   [white]tracelens analyze photo.jpg[/white]   ->   [green]tracelens sanitize photo.jpg[/green]",
+        "",
+        "[bold cyan]2. Forensic Evidence Audit & PDF Reporting[/bold cyan] (Document file history):",
+        "   [white]tracelens extract ./evidence/[/white] ->   [white]tracelens analyze ./evidence/ --threshold 50[/white] ->   [green]tracelens report 150 --format both[/green]",
+        "",
+        "[bold cyan]3. Compliance Auditing & Structured Export[/bold cyan] (Export records for auditing):",
+        "   [white]tracelens history --query 'confidential'[/white] ->   [green]tracelens export excel --output audit.xlsx[/green]",
+    ]
+    return Panel(
+        "\n".join(scenarios),
+        title="Common Operational Workflows",
+        border_style="cyan",
+        box=box.ROUNDED,
+        padding=(1, 2),
+    )
+
+
+def _display_general_help() -> None:
+    """Display the complete TraceLens CLI pipeline, command table, and workflow guide."""
+    console.print(_render_workflow_panel())
+    console.print(_render_command_table())
+    console.print(_render_scenarios_panel())
+    console.print(
+        "[dim]Tip: Run [bold cyan]tracelens help <command>[/bold cyan] (e.g. [green]tracelens help sanitize[/green] or [green]tracelens help report[/green]) for in-depth flags, options, and advanced examples.[/dim]\n"
+    )
+
+
+def _display_topic_help(topic: str) -> None:
+    """Display deep-dive help for a specific command or topic."""
+    info = HELP_TOPICS.get(topic)
+    if not info:
+        console.print(
+            summary_panel(
+                "Unknown Command or Topic",
+                [
+                    f"No dedicated help topic found matching '{topic}'.",
+                    f"Available topics: {', '.join(sorted(HELP_TOPICS.keys()))}",
+                ],
+                style="yellow",
+            )
+        )
+        _display_general_help()
+        return
+
+    # 1. Overview Panel
+    overview_lines = [
+        f"[bold]Phase:[/bold] {info['phase']}",
+        f"[bold]Purpose:[/bold] {info['summary']}",
+        "",
+        f"[bold]Workflow Role:[/bold] {info['flow']}",
+    ]
+    console.print(summary_panel(f"Command Guide: tracelens {topic}", overview_lines, style="bright_cyan"))
+
+    # 2. Syntax Panel
+    console.print(summary_panel("Syntax", [info["syntax"]], style="cyan"))
+
+    # 3. Arguments & Options Table
+    args = info.get("arguments", [])
+    opts = info.get("options", [])
+    if args or opts:
+        table = Table(title=f"Options & Parameters for '{topic}'", box=box.ROUNDED, header_style="bold bright_cyan")
+        table.add_column("Parameter / Flag", style="bold cyan", no_wrap=True)
+        table.add_column("Description", style="white", overflow="fold")
+        for arg_name, arg_desc in args:
+            table.add_row(arg_name, arg_desc)
+        for opt_name, opt_desc in opts:
+            table.add_row(opt_name, opt_desc)
+        console.print(table)
+
+    # 4. Examples Panel
+    examples = info.get("examples", [])
+    if examples:
+        console.print(summary_panel("Examples", examples, style="green"))
+
+    # 5. Related Commands
+    related = info.get("related", [])
+    if related:
+        related_str = ", ".join(f"[bold cyan]tracelens help {r}[/bold cyan]" for r in related)
+        console.print(f"[dim]Related commands: {related_str}[/dim]\n")
+
+
+@app.command(name="help")
+def cli_help(
+    command_name: str | None = typer.Argument(
+        None,
+        metavar="[COMMAND]",
+        help="Optional command name or topic (e.g. extract, analyze, sanitize, report, export, history, workflow).",
+    ),
+) -> None:
+    """Display comprehensive TraceLens CLI workflow, pipeline guide, and command reference."""
+    if command_name:
+        _display_topic_help(command_name.strip().lower())
+    else:
+        _display_general_help()
+
+
+def help_text() -> None:
+    """Display CLI help overview (used by interactive menu)."""
+    _display_general_help()
 
 
 def quick_extract() -> None:

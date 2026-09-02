@@ -635,3 +635,59 @@ def test_cli_logs_command():
     res_lines = runner.invoke(cli.app, ["logs", "--lines", "10"])
     assert res_lines.exit_code == 0
 
+
+def test_cli_help_command_general():
+    """Test 'tracelens help' displaying pipeline and command reference."""
+    runner = CliRunner()
+    res = runner.invoke(cli.app, ["help"])
+    assert res.exit_code == 0
+    assert "TraceLens CLI Workflow Pipeline" in res.output
+    assert "Command Reference" in res.output
+    assert "Common Operational Workflows" in res.output
+    assert "extract" in res.output
+    assert "analyze" in res.output
+    assert "sanitize" in res.output
+    assert "report" in res.output
+    assert "export" in res.output
+
+
+def test_cli_help_command_topic():
+    """Test 'tracelens help <command>' deep-dive output."""
+    runner = CliRunner()
+    res_extract = runner.invoke(cli.app, ["help", "extract"])
+    assert res_extract.exit_code == 0
+    assert "Command Guide: tracelens extract" in res_extract.output
+    assert "Syntax" in res_extract.output
+    assert "tracelens extract <targets...> [OPTIONS]" in res_extract.output
+    assert "--no-save" in res_extract.output
+    assert "Examples" in res_extract.output
+
+    res_sanitize = runner.invoke(cli.app, ["help", "sanitize"])
+    assert res_sanitize.exit_code == 0
+    assert "Command Guide: tracelens sanitize" in res_sanitize.output
+    assert "--dry-run" in res_sanitize.output
+
+    res_report = runner.invoke(cli.app, ["help", "report"])
+    assert res_report.exit_code == 0
+    assert "Command Guide: tracelens report" in res_report.output
+    assert "--format" in res_report.output
+
+
+def test_cli_help_command_unknown_topic():
+    """Test 'tracelens help <invalid>' shows warning and general reference."""
+    runner = CliRunner()
+    res = runner.invoke(cli.app, ["help", "nonexistent_command"])
+    assert res.exit_code == 0
+    assert "Unknown Command or Topic" in res.output
+    assert "Available topics:" in res.output
+    assert "Command Reference" in res.output
+
+
+def test_cli_no_args_suggests_help():
+    """Test running 'tracelens' without arguments suggests tracelens help."""
+    runner = CliRunner()
+    res = runner.invoke(cli.app, [])
+    assert res.exit_code == 0
+    assert "tracelens help" in res.output
+
+
