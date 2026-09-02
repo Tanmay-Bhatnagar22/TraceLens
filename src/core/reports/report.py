@@ -167,17 +167,23 @@ class MetadataReporter:
         except Exception:
             return "Metadata Report\n(No details available)"
 
-    def create_pdf_report_from_text(self, metadata_text, file_path):
+    def create_pdf_report_from_text(self, metadata_text=None, file_path=None, **kwargs):
         """Build PDF document with title, metadata table, timestamp using ReportLab.
         
         Args:
             metadata_text (str): Plain-text report content.
             file_path (str): Output PDF file path.
+            **kwargs: Additional parameters (report_text, output_path, etc.) for compatibility.
             
         Returns:
             None: PDF file is created at file_path.
         """
-        doc = SimpleDocTemplate(file_path, pagesize=A4)
+        text = metadata_text if metadata_text is not None else kwargs.get("report_text", "")
+        out_path = file_path if file_path is not None else kwargs.get("output_path")
+        if not out_path:
+            raise ValueError("Output file path must be provided for PDF generation.")
+
+        doc = SimpleDocTemplate(out_path, pagesize=A4)
         styles = getSampleStyleSheet()
         story = []
 
@@ -231,7 +237,7 @@ class MetadataReporter:
             ]))
             return table
 
-        lines = (metadata_text or '').split('\n')
+        lines = (text or '').split('\n')
         metadata_rows = []
         privacy_rows = []
         timeline_rows = []
@@ -593,9 +599,9 @@ def save_metadata(metadata_text):
     return _reporter.save_metadata(metadata_text)
 
 
-def create_pdf_report_from_text(metadata_text, file_path):
+def create_pdf_report_from_text(metadata_text=None, file_path=None, **kwargs):
     """Wrapper: Build PDF document with title, metadata table, and timestamp."""
-    return _reporter.create_pdf_report_from_text(metadata_text, file_path)
+    return _reporter.create_pdf_report_from_text(metadata_text, file_path, **kwargs)
 
 
 def export_to_pdf(df):

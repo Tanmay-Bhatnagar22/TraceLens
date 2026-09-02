@@ -59,20 +59,18 @@ class ReportService:
         Returns:
             tuple: (success, message_or_error)
         """
-        report_text = self.generate_text_report(
-            extracted_metadata=extracted_metadata,
-            file_path=file_path,
-            risk_analysis=risk_analysis,
-            batch_summary=batch_summary,
-        )
-        return self.reporter.create_pdf_report_from_text(
-            report_text=report_text,
-            output_path=output_path,
-            metadata=extracted_metadata,
-            risk_analysis=risk_analysis,
-            batch_summary=batch_summary,
-            file_path=file_path,
-        )
+        try:
+            report_text = self.generate_text_report(
+                extracted_metadata=extracted_metadata,
+                file_path=file_path,
+                risk_analysis=risk_analysis,
+                batch_summary=batch_summary,
+            )
+            self.reporter.create_pdf_report_from_text(report_text, output_path)
+            return True, f"PDF report saved to {output_path}"
+        except Exception as e:
+            logger.error("Failed to generate PDF report: %s", e)
+            return False, f"Failed to generate PDF report: {e}"
 
     def export_metadata(
         self,

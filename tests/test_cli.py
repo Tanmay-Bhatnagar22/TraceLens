@@ -430,6 +430,31 @@ def test_cli_report_command(tmp_path):
     assert len(list(out_dir.glob("*.txt"))) == 1
 
 
+def test_cli_report_command_pdf_and_both(tmp_path):
+    """Test 'tracelens report' generating pdf and both format reports."""
+    runner = CliRunner()
+    test_file = tmp_path / "reportable_pdf.txt"
+    test_file.write_text("Reportable data for pdf", encoding="utf-8")
+    out_dir_pdf = tmp_path / "reports_out_pdf"
+    out_dir_both = tmp_path / "reports_out_both"
+
+    result_pdf = runner.invoke(
+        cli.app,
+        ["report", str(test_file), "--format", "pdf", "--output-dir", str(out_dir_pdf)],
+    )
+    assert result_pdf.exit_code == 0
+    assert len(list(out_dir_pdf.glob("*.pdf"))) == 1
+    assert len(list(out_dir_pdf.glob("*.txt"))) == 0
+
+    result_both = runner.invoke(
+        cli.app,
+        ["report", str(test_file), "--format", "both", "--output-dir", str(out_dir_both)],
+    )
+    assert result_both.exit_code == 0
+    assert len(list(out_dir_both.glob("*.pdf"))) == 1
+    assert len(list(out_dir_both.glob("*.txt"))) == 1
+
+
 def test_cli_export_command_json(tmp_path):
     """Test 'tracelens export' exporting records to JSON."""
     runner = CliRunner()

@@ -65,7 +65,6 @@ extractor = extractor_core
 report = report_core
 risk_analyzer = risk_core
 
-
 APP_VERSION = "2.0.0"
 
 DB_COLUMNS = [
@@ -788,9 +787,15 @@ def report_command(
 
     if format_name.lower() in {"pdf", "both"}:
         pdf_path = output_directory / f"{base_name}_report_{timestamp}.pdf"
-        services.report.generate_pdf_report(metadata, file_path_text, str(pdf_path), risk_analysis=analysis.to_dict())
-        outputs.append(pdf_path)
-        logger.debug("Generated PDF report: %s", pdf_path)
+        success, message = services.report.generate_pdf_report(
+            metadata, file_path_text, str(pdf_path), risk_analysis=analysis.to_dict()
+        )
+        if success:
+            outputs.append(pdf_path)
+            logger.debug("Generated PDF report: %s", pdf_path)
+        else:
+            logger.error("Failed to generate PDF report: %s", message)
+            _print_error(f"Failed to generate PDF report: {message}")
 
     logger.info("Reports generated successfully: %s", [str(p) for p in outputs])
     preview_lines = [_preview_report_text(text_report)]

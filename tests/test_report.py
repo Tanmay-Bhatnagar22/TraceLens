@@ -307,3 +307,56 @@ def test_export_to_pdf(sample_dataframe):
         with mock.patch('src.core.reports.report.messagebox.showinfo'):
             # Test that export methods work without raising
             assert callable(reporter.export_to_pdf)
+
+
+def test_create_pdf_report_from_text_with_kwargs(temp_dir):
+    """Test create_pdf_report_from_text accepting keyword arguments."""
+    reporter = MetadataReporter()
+    output_path = os.path.join(temp_dir, "kwargs_report.pdf")
+    reporter.create_pdf_report_from_text(
+        report_text="Property: Value\nPrivacy Risk Analysis:\nRisk Level: LOW",
+        output_path=output_path,
+        risk_analysis={"risk_level": "LOW"},
+        batch_summary=None,
+    )
+    assert os.path.exists(output_path)
+    assert os.path.getsize(output_path) > 0
+
+
+def test_report_service_generate_pdf_report(temp_dir, sample_metadata):
+    """Test ReportService.generate_pdf_report functionality."""
+    from src.core.services.report_service import ReportService
+
+    service = ReportService()
+    output_path = os.path.join(temp_dir, "service_report.pdf")
+    success, message = service.generate_pdf_report(
+        extracted_metadata=sample_metadata,
+        file_path="sample.txt",
+        output_path=output_path,
+        risk_analysis={"risk_level": "LOW", "risk_score": 0},
+    )
+    assert success is True
+    assert "PDF report saved to" in message
+    assert os.path.exists(output_path)
+    assert os.path.getsize(output_path) > 0
+
+
+def test_report_service_generate_pdf_report_failure(temp_dir, sample_metadata):
+    """Test ReportService.generate_pdf_report error handling."""
+    from unittest.mock import MagicMock
+    from src.core.services.report_service import ReportService
+
+    mock_reporter = MagicMock()
+    mock_reporter.generate_report_text.return_value = "report"
+    mock_reporter.create_pdf_report_from_text.side_effect = RuntimeError("PDF build failed")
+
+    service = ReportService(reporter=mock_reporter)
+    output_path = os.path.join(temp_dir, "failing_report.pdf")
+    success, message = service.generate_pdf_report(
+        extracted_metadata=sample_metadata,
+        file_path="sample.txt",
+        output_path=output_path,
+    )
+    assert success is False
+    assert "Failed to generate PDF report: PDF build failed" in message
+
