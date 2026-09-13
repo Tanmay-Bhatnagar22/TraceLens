@@ -1,5 +1,5 @@
 """Main entry point for TraceLens application."""
-
+#TODO: make support for ico files
 from __future__ import annotations
 
 import platform
