@@ -481,32 +481,80 @@ tracelens gui
 
 ### Command-Line Interface (CLI)
 
-TraceLens provides a complete Typer/Rich command-line suite:
+TraceLens provides a full-featured `argparse` command-line suite with structured output, input validation, and standardized exit codes:
 
 ```text
 tracelens [OPTIONS] COMMAND [ARGS]...
 ```
 
+#### Quick Examples
+```bash
+tracelens --help
+tracelens extract example.jpg
+tracelens analyze example.jpg
+tracelens search confidential
+tracelens report 17
+tracelens batch ./samples
+tracelens --version
+tracelens -v extract example.jpg
+```
+
 #### Global Options
-- `--verbose / -v`: Enable verbose debug output and print stack traces.
-- `--quiet / -q`: Suppress non-critical messages and headers.
+- `-h, --help`: Show usage help and exit (supported globally and per command: `tracelens <command> --help`).
+- `-V, --version`: Display the TraceLens version string (`TraceLens 2.0.0`) and exit.
+- `-v, --verbose`: Enable verbose diagnostic logging (`[INFO]` / `[DEBUG]`) and include detailed tracebacks on unexpected errors.
+- `-q, --quiet`: Suppress banners and non-critical messages.
+- `--db-path PATH`: Use a custom SQLite database file path.
+
+#### Verbose Mode
+Passing `-v` or `--verbose` activates step-by-step diagnostic logging via Python's `logging` framework without altering the underlying operation:
+```text
+[INFO] Validating file: example.jpg
+[INFO] File size: 18432 bytes
+[INFO] Extracting metadata
+[INFO] Storing metadata in database
+✓ Metadata extraction completed
+```
+
+#### Exit Codes
+| Exit Code | Constant | Meaning |
+|---|---|---|
+| `0` | `EXIT_SUCCESS` | Command completed successfully |
+| `1` | `EXIT_GENERAL_ERROR` | General or unexpected runtime error |
+| `2` | `EXIT_INVALID_ARGS` | Invalid command, missing argument, or invalid parameter value |
+| `3` | `EXIT_FILE_ERROR` | File or directory path error (missing, wrong type, or unreadable) |
+| `4` | `EXIT_DATABASE_ERROR` | Database lookup or storage failure |
+| `5` | `EXIT_REPORT_ERROR` | Report generation or dataset export failure |
 
 #### Command Reference
 
 ##### 1. Extract Metadata (`tracelens extract`)
-Extract metadata from one or more files or directory trees:
+Extract metadata from one or more files and store records in SQLite:
 ```bash
-# Single file extraction
+# Single file extraction (outputs concise summary)
 tracelens extract document.pdf
 
-# Recursive folder extraction
-tracelens extract ./evidence_folder/ --recursive
+# Show full metadata key-value table in addition to summary
+tracelens extract document.pdf --details
 
 # Extract without persisting to database
 tracelens extract sample.jpg --no-save
+
+# Recursive folder extraction
+tracelens extract ./evidence_folder/ --recursive
 ```
 
-##### 2. Analyze Risk & Anomalies (`tracelens analyze`)
+##### 2. Batch Directory Processing (`tracelens batch`)
+Process all files in a directory with per-file progress (`Processing 1/N: ...`) and risk aggregation:
+```bash
+# Batch extract and analyze a directory recursively
+tracelens batch ./samples
+
+# Process top-level directory only without saving to database
+tracelens batch ./samples --flat --no-save
+```
+
+##### 3. Analyze Risk & Anomalies (`tracelens analyze`)
 Run privacy scoring, anomaly detection, and timeline analysis:
 ```bash
 # Analyze a single file
@@ -516,9 +564,22 @@ tracelens analyze photo.jpg
 tracelens analyze ./documents/ --recursive
 ```
 
-##### 3. Edit & Sanitize Metadata (`tracelens edit`)
-Modify metadata fields and write changes back to the source file:
+##### 4. Search Metadata Records (`tracelens search`)
+Search historical records in the SQLite database by keyword query:
 ```bash
+# Search records by keyword
+tracelens search confidential
+
+# Filter search by file type and limit results
+tracelens search invoice --file-type pdf --limit 10
+```
+
+##### 5. Edit & Sanitize Metadata (`tracelens edit`, `tracelens sanitize`)
+Modify or strip metadata fields and write changes back to the source file:
+```bash
+# Strip sensitive metadata tags (creates .bak backup by default)
+tracelens sanitize photo.jpg
+
 # Update individual keys
 tracelens edit document.pdf --set Author="Jane Doe" --set Title="Sanitized Report"
 
@@ -529,24 +590,27 @@ tracelens edit sample.docx --metadata-file updates.json
 tracelens edit sample.jpg --set Camera="Redacted" --no-write-file
 ```
 
-##### 4. Generate Reports (`tracelens report`)
-Render formatted text and PDF dossiers:
+##### 6. Generate Reports (`tracelens report`)
+Render formatted text and PDF dossiers from a database record ID or file path:
 ```bash
-# Generate TXT and PDF reports for a file
-tracelens report document.pdf --format both --output-dir ./reports/
-
 # Generate report from historical database record ID
+tracelens report 17
+
+# Generate PDF report for a record ID into a custom directory
 tracelens report 42 --format pdf --output-dir ./dossiers/
+
+# Generate TXT and PDF reports directly from a file
+tracelens report document.pdf --format both --output-dir ./reports/
 ```
 
-##### 5. Search & Manage History (`tracelens history`)
-Query historical extractions stored in SQLite:
+##### 7. Browse & Manage History (`tracelens history`)
+Query and maintain historical extractions stored in SQLite:
 ```bash
 # View recent history records
 tracelens history --limit 20
 
-# Search history with filters
-tracelens history --query "financial" --file-type pdf --date-filter "Last 7 Days"
+# Filter history records
+tracelens history --query "financial" --file-type pdf --date-filter "Last 30 Days"
 
 # Display database record count and distribution statistics
 tracelens history stats
@@ -558,8 +622,8 @@ tracelens history delete 14 --yes
 tracelens history clear --yes
 ```
 
-##### 6. Export Historical Datasets (`tracelens export`)
-Export filtered database rows into various formats:
+##### 8. Export Historical Datasets (`tracelens export`)
+Export filtered database rows into structured formats:
 ```bash
 # Export to JSON
 tracelens export json --output history_dump.json
@@ -572,9 +636,12 @@ tracelens export csv --output export.csv
 tracelens export xml --output export.xml
 ```
 
-##### 7. Diagnostics & Logging (`tracelens logs`, `tracelens config`)
-Inspect runtime configurations and log buffers:
+##### 9. Analytics, Diagnostics & Logging (`tracelens analytics`, `tracelens logs`, `tracelens config`)
+Inspect aggregate metrics, runtime configurations, and log buffers:
 ```bash
+# View analytics dashboard metrics
+tracelens analytics
+
 # View recent application logs
 tracelens logs --lines 100
 
@@ -593,9 +660,10 @@ To audit extensive directory trees containing heterogeneous file types:
 
 1. **CLI Execution**:
    ```bash
+   tracelens batch /path/to/evidence/
    tracelens analyze /path/to/evidence/ --recursive
    ```
-   TraceLens displays an animated progress bar, calculates anomaly penalties across all detected items, and generates an aggregated risk summary breakdown (LOW, MEDIUM, HIGH counts).
+   TraceLens reports per-file progress (`Processing 1/N: filename`), isolates individual file failures so the batch continues uninterrupted, calculates anomaly penalties across all detected items, and generates an aggregated summary breakdown (`Total`, `Successful`, `Failed`, and `LOW` / `MEDIUM` / `HIGH` risk counts).
 
 2. **GUI Execution**:
    - Open **Batch Process** from the top menu bar.

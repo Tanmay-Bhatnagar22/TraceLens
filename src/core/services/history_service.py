@@ -71,12 +71,30 @@ class HistoryService:
         Returns:
             List of filtered MetadataRecord domain models.
         """
+        sort_map = {
+            ("id", False): "Date (Newest)",
+            ("id", True): "Date (Oldest)",
+            ("extracted_at", False): "Date (Newest)",
+            ("extracted_at", True): "Date (Oldest)",
+            ("file_name", True): "Name (A-Z)",
+            ("file_name", False): "Name (Z-A)",
+            ("file_size_formatted", False): "Size (Largest)",
+            ("file_size_formatted", True): "Size (Smallest)",
+        }
+        sort_option = sort_by if sort_by in {
+            "Date (Newest)",
+            "Date (Oldest)",
+            "Name (A-Z)",
+            "Name (Z-A)",
+            "Size (Largest)",
+            "Size (Smallest)",
+        } else sort_map.get((sort_by, ascending), "Date (Newest)")
+
         rows = self.database.filter_and_search_data(
-            search_query=search_query,
-            file_type=file_type,
-            date_filter=date_filter,
-            sort_by=sort_by,
-            ascending=ascending,
+            search_query,
+            file_type or "All",
+            date_filter or "All Time",
+            sort_option,
         )
         return [MetadataRecord.from_row(row) for row in rows]
 

@@ -36,7 +36,7 @@ package-dir = {"" = "src"}
 py-modules = ["cli", "db", "editor", "extractor", "gui", "main", "report", "risk_analyzer"]
 
 [project.scripts]
-tracelens = "cli:app"
+tracelens = "cli:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

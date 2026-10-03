@@ -1,8 +1,11 @@
+"""Consistent CLI output and formatting layer for TraceLens."""
+
 from __future__ import annotations
 
 import json
 from collections.abc import Iterable, Mapping
 from pathlib import Path
+import sys
 from typing import Any
 
 from rich import box
@@ -11,11 +14,109 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-console = Console()
+console = Console(highlight=False)
 
 
 APP_TITLE = "TraceLens"
 APP_TAGLINE = "Intelligent Metadata Analysis and Privacy Inspection Toolkit"
+
+
+def _supports_unicode() -> bool:
+    """Return True if the active stdout stream supports Unicode symbols."""
+    encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+    try:
+        "✓✗!→─".encode(encoding)
+        return True
+    except Exception:
+        return False
+
+
+def get_symbols() -> dict[str, str]:
+    """Return consistent visual symbols with automatic ASCII fallback."""
+    if _supports_unicode():
+        return {
+            "success": "✓",
+            "error": "✗",
+            "warning": "!",
+            "info": "→",
+            "rule": "─",
+        }
+    return {
+        "success": "[+]",
+        "error": "[x]",
+        "warning": "[!]",
+        "info": "->",
+        "rule": "-",
+    }
+
+
+def _safe_write_line(text: str = "") -> None:
+    """Write a line to stdout safely across Windows, Linux, and macOS."""
+    try:
+        print(text)
+    except UnicodeEncodeError:
+        encoding = getattr(sys.stdout, "encoding", None) or "ascii"
+        safe_text = text.encode(encoding, errors="replace").decode(encoding, errors="replace")
+        print(safe_text)
+
+
+def print_header(title: str = APP_TITLE, subtitle: str | None = None) -> None:
+    """Print a concise, consistent CLI section header."""
+    symbols = get_symbols()
+    rule_line = symbols["rule"] * len(title)
+    _safe_write_line(title)
+    _safe_write_line(rule_line)
+    if subtitle:
+        _safe_write_line(subtitle)
+    _safe_write_line("")
+
+
+def print_success(text: str) -> None:
+    """Print a standardized success message."""
+    sym = get_symbols()["success"]
+    _safe_write_line(f"{sym} {text}")
+
+
+def print_error(text: str, *, command: str | None = None, hint: str | None = None) -> None:
+    """Print a standardized error message with optional usage hint."""
+    sym = get_symbols()["error"]
+    _safe_write_line(f"{sym} {text}")
+    resolved_hint = hint
+    if not resolved_hint and command:
+        resolved_hint = f"Use 'tracelens {command} --help' for usage information."
+    if resolved_hint:
+        _safe_write_line("")
+        _safe_write_line(resolved_hint)
+
+
+def print_warning(text: str) -> None:
+    """Print a standardized warning message."""
+    sym = get_symbols()["warning"]
+    _safe_write_line(f"{sym} {text}")
+
+
+def print_info(text: str) -> None:
+    """Print a standardized informational message."""
+    sym = get_symbols()["info"]
+    _safe_write_line(f"{sym} {text}")
+
+
+def print_summary(
+    title: str,
+    items: Mapping[str, Any] | Iterable[str],
+    *,
+    style: str = "green",
+    show_panel: bool = True,
+) -> None:
+    """Print a concise operation summary."""
+    lines = lines_from_values(items) if isinstance(items, Mapping) else list(items)
+    if show_panel:
+        console.print(summary_panel(title, lines, style=style))
+    else:
+        _safe_write_line(title)
+        _safe_write_line("")
+        for line in lines:
+            _safe_write_line(line)
 
 
 def app_header() -> Panel:
@@ -35,14 +136,14 @@ def summary_panel(title: str, lines: Iterable[str], *, style: str = "green") -> 
 
 
 def message(text: str, *, kind: str = "info") -> None:
-    styles = {
-        "success": "bold green",
-        "warning": "bold yellow",
-        "error": "bold red",
-        "info": "bold cyan",
-    }
-    prefix = {"success": "[+] ", "warning": "[!] ", "error": "[x] ", "info": "[i] "}.get(kind, "")
-    console.print(f"[{styles.get(kind, 'bold cyan')}]{prefix}{text}[/{styles.get(kind, 'bold cyan')}]")
+    if kind == "success":
+        print_success(text)
+    elif kind == "warning":
+        print_warning(text)
+    elif kind == "error":
+        print_error(text)
+    else:
+        print_info(text)
 
 
 def _stringify(value: Any) -> str:
