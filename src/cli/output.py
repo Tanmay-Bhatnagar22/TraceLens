@@ -18,7 +18,7 @@ console = Console(highlight=False)
 
 
 APP_TITLE = "TraceLens"
-APP_TAGLINE = "Intelligent Metadata Analysis and Privacy Inspection Toolkit"
+APP_TAGLINE = "Intelligent Metadata Analysis & Privacy Inspection Toolkit"
 
 
 def _supports_unicode() -> bool:
@@ -63,11 +63,17 @@ def _safe_write_line(text: str = "") -> None:
 def print_header(title: str = APP_TITLE, subtitle: str | None = None) -> None:
     """Print a concise, consistent CLI section header."""
     symbols = get_symbols()
-    rule_line = symbols["rule"] * len(title)
-    _safe_write_line(title)
-    _safe_write_line(rule_line)
-    if subtitle:
-        _safe_write_line(subtitle)
+    if title == APP_TITLE and subtitle is None:
+        header_text = Text(f" \n {APP_TITLE}: {APP_TAGLINE}", style="bold bright_cyan")
+        rule_line = symbols["rule"] * (len(header_text.plain) + 2)
+        console.print(header_text, soft_wrap=True)
+        console.print(Text(rule_line, style="bright_cyan"), soft_wrap=True)
+    else:
+        rule_line = symbols["rule"] * len(title)
+        console.print(Text(title, style="bold bright_cyan"), soft_wrap=True)
+        console.print(Text(rule_line, style="bright_cyan"), soft_wrap=True)
+        if subtitle:
+            console.print(Text(subtitle, style="bright_cyan"), soft_wrap=True)
     _safe_write_line("")
 
 

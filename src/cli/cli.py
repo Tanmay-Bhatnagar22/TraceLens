@@ -2158,7 +2158,6 @@ def _dispatch_parsed_args(ns: argparse.Namespace, state: CLIState) -> int:
                 "Quick Start",
                 [
                     "tracelens help                # View complete CLI workflow & command guide",
-                    "tracelens --help              # Display the same canonical CLI command guide",
                     "tracelens extract file.pdf    # Ingest metadata into database",
                     "tracelens analyze file.pdf    # Assess privacy risks & scores",
                     "tracelens search confidential # Search stored metadata records",
