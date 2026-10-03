@@ -1,8 +1,10 @@
-import sys
+import json
 from pathlib import Path
-import types
 import subprocess
+import sys
+
 import pytest
+from typer.testing import CliRunner
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SRC_PATH = PROJECT_ROOT / "src"
@@ -10,257 +12,18 @@ if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
 import cli
-
-
-def test_normalize_path_strips_quotes_and_whitespace():
-    raw = '  "C:/tmp/sample.txt"  '
-    assert cli._normalize_path(raw).endswith("sample.txt")
-
-
-def test_prompt_path_retries_until_non_empty(monkeypatch, capsys):
-    responses = iter(["", "   ", " ./data.txt "])
-    monkeypatch.setattr("builtins.input", lambda _prompt: next(responses))
-
-    result = cli.prompt_path("Enter file path")
-    out = capsys.readouterr().out
-
-    assert result.endswith("data.txt")
-    assert "Path cannot be empty." in out
-
-
-def test_quick_extract_success(monkeypatch, capsys):
-    monkeypatch.setattr(cli, "prompt_path", lambda _text: "file.txt")
-    monkeypatch.setattr(cli.extractor, "extract_and_store", lambda _path: ({"Title": "Doc"}, None))
-
-    called = {"value": False}
-
-    def fake_pretty(meta):
-        called["value"] = True
-        assert meta["Title"] == "Doc"
-
-    monkeypatch.setattr(cli, "pretty_print_metadata", fake_pretty)
-
-    cli.quick_extract()
-    out = capsys.readouterr().out
-
-    assert "Metadata extracted and saved to database." in out
-    assert called["value"] is True
-
-
-def test_quick_extract_error(monkeypatch, capsys):
-    monkeypatch.setattr(cli, "prompt_path", lambda _text: "missing.txt")
-    monkeypatch.setattr(cli.extractor, "extract_and_store", lambda _path: ({"Error": "Bad file"}, None))
-
-    cli.quick_extract()
-    out = capsys.readouterr().out
-
-    assert "Error: Bad file" in out
-
-
-def test_analyze_single_file_risk_success(monkeypatch, capsys):
-    monkeypatch.setattr(cli, "prompt_path", lambda _text: "file.txt")
-    monkeypatch.setattr(cli.extractor, "extract", lambda _path: {"Author": "A"})
-    monkeypatch.setattr(
-        cli.risk_analyzer,
-        "analyze_metadata",
-        lambda _meta, _path: {
-            "file_name": "file.txt",
-            "risk_score": 75,
-            "risk_level": "HIGH",
-            "reasons": ["Author metadata present"],
-            "timeline": [{"event": "Created", "timestamp": "2025-01-01"}],
-        },
-    )
-
-    cli.analyze_single_file_risk()
-    out = capsys.readouterr().out
-
-    assert "Risk Score: 75/100" in out
-    assert "Risk Level: HIGH" in out
-    assert "Author metadata present" in out
-    assert "Created: 2025-01-01" in out
-
-
-def test_generate_report_cli_saves_txt_and_pdf(monkeypatch, tmp_path, capsys):
-    monkeypatch.setattr(cli, "prompt_path", lambda _text: "C:/tmp/input_file.txt")
-    monkeypatch.setattr(cli.extractor, "extract", lambda _path: {"Title": "Doc"})
-    monkeypatch.setattr(cli.risk_analyzer, "analyze_metadata", lambda _meta, _path: {"risk_score": 10})
-    monkeypatch.setattr(cli.report, "generate_report_text", lambda *_args, **_kwargs: "report body")
-
-    pdf_calls = []
-    monkeypatch.setattr(cli.report, "create_pdf_report_from_text", lambda text, out: pdf_calls.append((text, out)))
-    monkeypatch.setattr(cli, "ROOT_DIR", tmp_path)
-
-    class _FakeNow:
-        def strftime(self, _fmt):
-            return "20260101_000000"
-
-    fake_datetime = types.SimpleNamespace(now=lambda: _FakeNow())
-    monkeypatch.setattr(cli, "datetime", fake_datetime)
-    monkeypatch.setattr("builtins.input", lambda _prompt: "both")
-
-    cli.generate_report_cli()
-    out = capsys.readouterr().out
-
-    txt_path = tmp_path / "input_file_report_20260101_000000.txt"
-    pdf_path = tmp_path / "input_file_report_20260101_000000.pdf"
-
-    assert txt_path.exists()
-    assert txt_path.read_text(encoding="utf-8") == "report body"
-    assert pdf_calls == [("report body", str(pdf_path))]
-    assert "TXT saved:" in out
-    assert "PDF saved:" in out
-
-
-def test_generate_report_cli_unknown_option(monkeypatch, tmp_path, capsys):
-    monkeypatch.setattr(cli, "prompt_path", lambda _text: "C:/tmp/input_file.txt")
-    monkeypatch.setattr(cli.extractor, "extract", lambda _path: {"Title": "Doc"})
-    monkeypatch.setattr(cli.risk_analyzer, "analyze_metadata", lambda _meta, _path: {"risk_score": 10})
-    monkeypatch.setattr(cli.report, "generate_report_text", lambda *_args, **_kwargs: "report body")
-    monkeypatch.setattr(cli, "ROOT_DIR", tmp_path)
-    monkeypatch.setattr("builtins.input", lambda _prompt: "weird")
-
-    pdf_calls = []
-    monkeypatch.setattr(cli.report, "create_pdf_report_from_text", lambda *_args: pdf_calls.append(True))
-
-    cli.generate_report_cli()
-    out = capsys.readouterr().out
-
-    assert not list(tmp_path.glob("*.txt"))
-    assert pdf_calls == []
-    assert "Unknown option. Nothing saved." in out
-
-
-def test_iter_files_returns_nested_files(tmp_path):
-    (tmp_path / "a.txt").write_text("a", encoding="utf-8")
-    nested = tmp_path / "nested"
-    nested.mkdir()
-    (nested / "b.txt").write_text("b", encoding="utf-8")
-
-    files = cli._iter_files(tmp_path)
-    names = {path.name for path in files}
-
-    assert names == {"a.txt", "b.txt"}
-
-
-def test_batch_scan_folder_reports_summary(monkeypatch, tmp_path, capsys):
-    file_a = tmp_path / "a.txt"
-    file_b = tmp_path / "b.txt"
-    file_a.write_text("a", encoding="utf-8")
-    file_b.write_text("b", encoding="utf-8")
-
-    monkeypatch.setattr(cli, "prompt_path", lambda _text: str(tmp_path))
-
-    responses = iter([{"Title": "ok"}, {"Error": "failed"}])
-    monkeypatch.setattr(cli.extractor, "extract", lambda _path: next(responses))
-
-    insert_calls = []
-    monkeypatch.setattr(cli.db, "insert_metadata", lambda path, metadata: insert_calls.append((path, metadata)))
-    monkeypatch.setattr(
-        cli.risk_analyzer,
-        "analyze_batch",
-        lambda entries: {
-            "total_files": len(entries),
-            "risk_counts": {"LOW": 1, "MEDIUM": 0, "HIGH": 0},
-        },
-    )
-
-    cli.batch_scan_folder()
-    out = capsys.readouterr().out
-
-    assert len(insert_calls) == 1
-    assert "Successful: 1" in out
-    assert "Failed: 1" in out
-    assert "LOW: 1" in out
-
-
-def test_view_recent_history_handles_invalid_limit(monkeypatch, capsys):
-    monkeypatch.setattr("builtins.input", lambda _prompt: "abc")
-    monkeypatch.setattr(cli.db, "get_recent_records", lambda limit=10: [])
-
-    cli.view_recent_history()
-    out = capsys.readouterr().out
-
-    assert "Invalid number. Showing 10 records." in out
-    assert "No history records found." in out
-
-
-def test_launch_gui_calls_main(monkeypatch):
-    called = {"value": 0}
-    monkeypatch.setattr(cli, "_run_gui_main", lambda: called.__setitem__("value", called["value"] + 1))
-
-    cli.launch_gui()
-
-    assert called["value"] == 1
-
-
-def test_launch_gui_missing_dependency(monkeypatch, capsys):
-    def _raise_missing():
-        raise ModuleNotFoundError("No module named 'matplotlib'", name="matplotlib")
-
-    monkeypatch.setattr(cli, "_run_gui_main", _raise_missing)
-
-    cli.launch_gui()
-    out = capsys.readouterr().out
-
-    assert "GUI dependency missing: matplotlib" in out
-    assert "pip install -r requirements.txt" in out
-
-
-def test_launch_gui_uses_project_venv_on_missing_dependency(monkeypatch, tmp_path, capsys):
-    def _raise_missing():
-        raise ModuleNotFoundError("No module named 'matplotlib'", name="matplotlib")
-
-    monkeypatch.setattr(cli, "_run_gui_main", _raise_missing)
-
-    fake_python = tmp_path / "python.exe"
-    fake_python.write_text("", encoding="utf-8")
-    monkeypatch.setattr(cli, "_project_venv_python", lambda: fake_python)
-
-    popen_calls = []
-
-    class _DummyProcess:
-        pass
-
-    def _fake_popen(cmd, cwd=None):
-        popen_calls.append((cmd, cwd))
-        return _DummyProcess()
-
-    monkeypatch.setattr(subprocess, "Popen", _fake_popen)
-
-    cli.launch_gui()
-    out = capsys.readouterr().out
-
-    assert len(popen_calls) == 1
-    assert str(fake_python) in popen_calls[0][0][0]
-    assert "GUI launched using project venv" in out
-
-
-def test_run_cli_help_then_exit(monkeypatch):
-    monkeypatch.setattr(cli, "clear_screen", lambda: None)
-    monkeypatch.setattr(cli, "banner", lambda: None)
-    monkeypatch.setattr(cli, "print_menu", lambda: None)
-    monkeypatch.setattr(cli, "_enable_ansi_windows", lambda: None)
-
-    called = {"help": 0}
-    monkeypatch.setattr(cli, "help_text", lambda: called.__setitem__("help", called["help"] + 1))
-
-    responses = iter(["help", "", "0"])
-    monkeypatch.setattr("builtins.input", lambda _prompt: next(responses))
-
-    cli.run_cli()
-
-    assert called["help"] == 1
-
-
-# ==============================================================================
-# Service Layer Integration Tests for CLI
-# ==============================================================================
-
-import json
-from typer.testing import CliRunner
+from src.cli.validation import (
+    CLIFileError,
+    CLIValidationError,
+    collect_files,
+    normalize_path,
+    require_directory,
+    require_file,
+    validate_record_id,
+    validate_search_query,
+)
 from src.core.services import ServiceContainer, reset_service_container
-from src.models import ExtractionResult, RiskAssessment, BatchExtractionResult, BatchRiskResult
+from src.models import ExtractionResult
 
 
 @pytest.fixture(autouse=True)
@@ -271,6 +34,162 @@ def reset_services_fixture():
     yield
     reset_service_container()
     cli.set_services(None)
+
+
+# ==============================================================================
+# Validation & Path Normalization Unit Tests
+# ==============================================================================
+
+
+def test_normalize_path_strips_quotes_and_whitespace():
+    raw = '  "C:/tmp/sample.txt"  '
+    assert cli._normalize_path(raw).endswith("sample.txt")
+    assert str(normalize_path(raw)).endswith("sample.txt")
+
+
+def test_collect_files_returns_nested_files(tmp_path):
+    (tmp_path / "a.txt").write_text("a", encoding="utf-8")
+    nested = tmp_path / "nested"
+    nested.mkdir()
+    (nested / "b.txt").write_text("b", encoding="utf-8")
+
+    files = collect_files([str(tmp_path)], recursive=True, allow_directories=True)
+    names = {path.name for path in files}
+
+    assert names == {"a.txt", "b.txt"}
+
+
+def test_validation_helpers_file_dir_id_and_query(tmp_path):
+    sample_file = tmp_path / "valid.txt"
+    sample_file.write_text("ok", encoding="utf-8")
+
+    assert require_file(str(sample_file)) == sample_file.resolve()
+    assert require_directory(str(tmp_path)) == tmp_path.resolve()
+
+    with pytest.raises(CLIFileError):
+        require_file(str(tmp_path))
+
+    with pytest.raises(CLIFileError):
+        require_directory(str(sample_file))
+
+    assert validate_record_id("42") == 42
+    with pytest.raises(CLIValidationError):
+        validate_record_id("not-an-int")
+    with pytest.raises(CLIValidationError):
+        validate_record_id("0")
+
+    assert validate_search_query("  confidential  ") == "confidential"
+    with pytest.raises(CLIValidationError):
+        validate_search_query("   ")
+
+
+# ==============================================================================
+# GUI Separation & Lightweight Headless CLI Tests
+# ==============================================================================
+
+
+def test_cli_gui_command_is_removed(capsys):
+    """Verify 'tracelens gui' is no longer a valid CLI command."""
+    code = cli.main(["gui"])
+    out = capsys.readouterr().out
+    assert code == cli.EXIT_INVALID_ARGS
+    assert "Invalid command or argument" in out
+    assert "gui" not in cli.HELP_TOPICS
+
+
+def test_cli_runs_without_tkinter_available(tmp_path):
+    """Verify CLI commands (--version, help, --help, extract) run when tkinter is completely unavailable."""
+    sample = tmp_path / "headless.txt"
+    sample.write_text("Headless forensic test", encoding="utf-8")
+    db_file = tmp_path / "headless.db"
+
+    script = (
+        "import sys; "
+        "sys.modules['tkinter'] = None; "
+        "sys.modules['tkinter.filedialog'] = None; "
+        "sys.modules['tkinter.messagebox'] = None; "
+        f"sys.path.insert(0, {str(PROJECT_ROOT)!r}); "
+        f"sys.path.insert(0, {str(SRC_PATH)!r}); "
+        "from src.cli import cli; "
+        "assert 'tkinter' not in sys.modules or sys.modules['tkinter'] is None; "
+        "assert cli.main(['--version']) == 0; "
+        "assert cli.main(['help']) == 0; "
+        "assert cli.main(['--help']) == 0; "
+        f"assert cli.main(['--db-path', {str(db_file)!r}, 'extract', {str(sample)!r}]) == 0; "
+        "assert sys.modules.get('tkinter') is None; "
+        "assert 'src.gui' not in sys.modules; "
+        "assert 'src.gui.gui' not in sys.modules; "
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, f"STDERR:\n{proc.stderr}\nSTDOUT:\n{proc.stdout}"
+    assert "Metadata extraction completed" in proc.stdout
+
+
+def test_removed_duplicate_and_legacy_commands_rejected(capsys):
+    """Verify removed duplicate/legacy commands ('gui', 'interactive', 'stats', 'config logs') return exit code 2."""
+    for argv in (["gui"], ["interactive"], ["stats"], ["config", "logs"]):
+        code = cli.main(argv)
+        out = capsys.readouterr().out
+        assert code == cli.EXIT_INVALID_ARGS
+        assert "Invalid command or argument" in out
+
+
+# ==============================================================================
+# Help Consolidation & Single Source of Truth Tests
+# ==============================================================================
+
+
+def test_help_and_dash_help_use_same_canonical_renderer(capsys):
+    """Verify 'tracelens help' and 'tracelens --help' produce identical canonical output."""
+    code_help = cli.main(["help"])
+    out_help = capsys.readouterr().out
+
+    code_flag = cli.main(["--help"])
+    out_flag = capsys.readouterr().out
+
+    assert code_help == cli.EXIT_SUCCESS
+    assert code_flag == cli.EXIT_SUCCESS
+    assert out_help == out_flag
+    assert "TraceLens CLI Workflow Pipeline" in out_help
+    assert "Command Reference" in out_help
+    assert "Common Operational Workflows" in out_help
+
+
+def test_canonical_help_topics_match_argparse_subparsers():
+    """Verify every registered argparse subcommand is defined in HELP_TOPICS (single source of truth)."""
+    import argparse
+
+    parser = cli.build_parser()
+    subparsers_actions = [
+        action for action in parser._actions if isinstance(action, argparse._SubParsersAction)
+    ]
+    assert len(subparsers_actions) == 1
+    registered_commands = set(subparsers_actions[0].choices.keys())
+    canonical_commands = {
+        name for name, info in cli.HELP_TOPICS.items() if info.get("is_command", False)
+    }
+    assert registered_commands == canonical_commands
+
+
+def test_subcommand_dash_help_uses_argparse_and_canonical_metadata(capsys):
+    """Verify 'tracelens <command> --help' works for extract, analyze, report, and batch."""
+    for cmd_name in ("extract", "analyze", "report", "batch", "search"):
+        code = cli.main([cmd_name, "--help"])
+        out = capsys.readouterr().out
+        assert code == cli.EXIT_SUCCESS
+        assert f"usage: tracelens {cmd_name}" in out
+        assert cli.HELP_TOPICS[cmd_name]["summary"] in out
+        assert "Examples:" in out
+
+
+# ==============================================================================
+# Service Layer Integration Tests for CLI
+# ==============================================================================
 
 
 def test_cli_get_services_returns_container():
@@ -400,10 +319,8 @@ def test_cli_edit_command(tmp_path):
     test_file.write_text("Editable content", encoding="utf-8")
     db_file = tmp_path / "test.db"
 
-    # First extract so it's in db
     runner.invoke(cli.app, ["--db-path", str(db_file), "extract", str(test_file)])
 
-    # Now edit
     result = runner.invoke(
         cli.app,
         ["--db-path", str(db_file), "edit", str(test_file), "--set", "Author=TestAuthor"],
@@ -463,7 +380,6 @@ def test_cli_export_command_json(tmp_path):
     test_file = tmp_path / "export_file.txt"
     test_file.write_text("content", encoding="utf-8")
 
-    # Extract to populate DB
     runner.invoke(cli.app, ["--db-path", str(db_file), "extract", str(test_file)])
 
     export_json = tmp_path / "out.json"
@@ -483,52 +399,41 @@ def test_cli_history_subcommands(tmp_path):
     test_file = tmp_path / "hist.txt"
     test_file.write_text("content", encoding="utf-8")
 
-    # Extract to populate DB
     runner.invoke(cli.app, ["--db-path", str(db_file), "extract", str(test_file)])
 
-    # View history
     res_hist = runner.invoke(cli.app, ["--db-path", str(db_file), "history"])
     assert res_hist.exit_code == 0
     assert "Recent History" in res_hist.output
     assert "hist.txt" in res_hist.output
 
-    # View stats
     res_stats = runner.invoke(cli.app, ["--db-path", str(db_file), "history", "stats"])
     assert res_stats.exit_code == 0
     assert "Database Statistics" in res_stats.output
     assert "Total Records: 1" in res_stats.output
 
-    # Delete record
     res_del = runner.invoke(cli.app, ["--db-path", str(db_file), "history", "delete", "1", "--yes"])
     assert res_del.exit_code == 0
     assert "History Updated" in res_del.output
 
-    # Clear history
     res_clear = runner.invoke(cli.app, ["--db-path", str(db_file), "history", "clear", "--yes"])
     assert res_clear.exit_code == 0
     assert "History Cleared" in res_clear.output
 
 
-def test_cli_analytics_and_stats_commands(tmp_path):
-    """Test 'tracelens analytics' and 'tracelens stats' commands."""
+def test_cli_analytics_command(tmp_path):
+    """Test 'tracelens analytics' command."""
     runner = CliRunner()
     db_file = tmp_path / "test.db"
     test_file = tmp_path / "analytics.txt"
-    test_file.write_text("some content for stats", encoding="utf-8")
+    test_file.write_text("some content for analytics", encoding="utf-8")
 
     runner.invoke(cli.app, ["--db-path", str(db_file), "extract", str(test_file)])
 
-    # Test analytics command
     res_analytics = runner.invoke(cli.app, ["--db-path", str(db_file), "analytics"])
     assert res_analytics.exit_code == 0
     assert "TraceLens Analytics Dashboard" in res_analytics.output
     assert "Total Analyzed Files: 1" in res_analytics.output
     assert "Privacy Risk Breakdown" in res_analytics.output
-
-    # Test stats shortcut
-    res_stats = runner.invoke(cli.app, ["--db-path", str(db_file), "stats"])
-    assert res_stats.exit_code == 0
-    assert "TraceLens Analytics Dashboard" in res_stats.output
 
 
 def test_cli_config_and_optimize(tmp_path):
@@ -554,10 +459,8 @@ def test_cli_report_from_history_record_id(tmp_path):
     test_file.write_text("ID Report Content", encoding="utf-8")
     out_dir = tmp_path / "reports_from_id"
 
-    # Extract to populate DB
     runner.invoke(cli.app, ["--db-path", str(db_file), "extract", str(test_file)])
 
-    # Generate report by ID 1
     result = runner.invoke(
         cli.app,
         ["--db-path", str(db_file), "report", "1", "--format", "txt", "--output-dir", str(out_dir)],
@@ -588,8 +491,8 @@ def test_cli_edit_with_metadata_json_file(tmp_path):
     assert "Title: JSONTitle" in result.output
 
 
-def test_cli_export_formats_csv_xml(tmp_path):
-    """Test 'tracelens export' with CSV and XML formats."""
+def test_cli_export_formats_csv_xml_pdf(tmp_path):
+    """Test 'tracelens export' with CSV, XML, and PDF formats via ReportService."""
     runner = CliRunner()
     db_file = tmp_path / "test.db"
     test_file = tmp_path / "sample.txt"
@@ -606,6 +509,11 @@ def test_cli_export_formats_csv_xml(tmp_path):
     res_xml = runner.invoke(cli.app, ["--db-path", str(db_file), "export", "xml", "--output", str(xml_out)])
     assert res_xml.exit_code == 0
     assert xml_out.exists()
+
+    pdf_out = tmp_path / "export.pdf"
+    res_pdf = runner.invoke(cli.app, ["--db-path", str(db_file), "export", "pdf", "--output", str(pdf_out)])
+    assert res_pdf.exit_code == 0
+    assert pdf_out.exists()
 
 
 def test_cli_analytics_with_filters(tmp_path):
@@ -708,6 +616,8 @@ def test_argparse_build_parser_and_help(capsys):
     out_root = capsys.readouterr().out
     assert code_root == cli.EXIT_SUCCESS
     assert "usage: tracelens" in out_root
+    assert "TraceLens CLI Workflow Pipeline" in out_root
+    assert "Command Reference" in out_root
     assert "extract" in out_root
     assert "analyze" in out_root
     assert "search" in out_root
@@ -805,13 +715,11 @@ def test_cli_search_command_and_validation(tmp_path, capsys):
     sample = tmp_path / "forensic_evidence.txt"
     sample.write_text("confidential payload", encoding="utf-8")
 
-    # Reject empty/whitespace query
     code_empty = cli.main(["--db-path", str(db_file), "search", "   "])
     out_empty = capsys.readouterr().out
     assert code_empty == cli.EXIT_INVALID_ARGS
     assert "Search query cannot be empty." in out_empty
 
-    # Populate DB and search
     assert cli.main(["--db-path", str(db_file), "extract", str(sample)]) == cli.EXIT_SUCCESS
     capsys.readouterr()
 
@@ -849,13 +757,11 @@ def test_cli_verbose_mode_diagnostics(tmp_path, capsys):
     sample = tmp_path / "verbose_sample.txt"
     sample.write_text("Verbose test content", encoding="utf-8")
 
-    # Normal mode should not include [INFO] diagnostic lines
     code_normal = cli.main(["--db-path", str(db_file), "extract", str(sample)])
     out_normal = capsys.readouterr().out
     assert code_normal == cli.EXIT_SUCCESS
     assert "[INFO] Validating file:" not in out_normal
 
-    # Verbose mode should include [INFO] diagnostic lines
     code_verbose = cli.main(["-v", "--db-path", str(db_file), "extract", str(sample)])
     out_verbose = capsys.readouterr().out
     assert code_verbose == cli.EXIT_SUCCESS
@@ -877,14 +783,12 @@ def test_cli_unexpected_error_handling_normal_vs_verbose(tmp_path, monkeypatch, 
     monkeypatch.setattr(container.extraction, "extract_file", _boom)
     cli.set_services(container)
 
-    # Normal mode: no Python traceback exposed
     code_normal = cli.main(["extract", str(sample)])
     out_normal = capsys.readouterr().out
     assert code_normal == cli.EXIT_GENERAL_ERROR
     assert "An unexpected error occurred while processing the file." in out_normal
     assert "Traceback (most recent call last)" not in out_normal
 
-    # Verbose mode: includes diagnostic exception details & traceback
     code_verbose = cli.main(["-v", "extract", str(sample)])
     out_verbose = capsys.readouterr().out
     assert code_verbose == cli.EXIT_GENERAL_ERROR
@@ -950,6 +854,3 @@ def test_cli_batch_command_valid_empty_and_partial_failure(tmp_path, monkeypatch
     out_bad_dir = capsys.readouterr().out
     assert code_bad_dir == cli.EXIT_FILE_ERROR
     assert "Path is a file, expected a directory" in out_bad_dir
-
-
-

@@ -76,10 +76,10 @@ Version 2.0 represents a major architectural evolution of TraceLens, transformin
   - **Stacked Container Detection**: Identifies coexisting and potentially conflicting metadata blocks (XMP, IPTC, EXIF, MakerNotes).
 - Context-specific remediation recommendations for every triggered rule.
 
-### 3. Production CLI Overhaul (Typer + Rich)
-- Modernized command-line subsystem with command groups (`extract`, `analyze`, `edit`, `report`, `history`, `export`, `logs`, `config`, `gui`).
-- Interactive terminal outputs featuring rich colored tables, animated progress bars, live spinners, risk severity badges, and structured summary panels.
-- Headless execution support suitable for CI/CD pipelines, forensic server nodes, and automated batch scripting.
+### 3. Production CLI Overhaul (Argparse + Rich)
+- Modernized, lightweight command-line subsystem with dedicated subcommands (`extract`, `batch`, `analyze`, `sanitize`, `edit`, `report`, `export`, `search`, `history`, `analytics`, `config`, `logs`, `help`).
+- Decoupled from Tkinter/GUI dependencies so the CLI executable runs cleanly in headless environments (`TraceLens CLI` vs `TraceLens GUI`).
+- Unified canonical help system (`tracelens help` and `tracelens --help`) alongside command-specific `argparse` help (`tracelens <command> --help`).
 
 ### 4. Modular Tabbed GUI Architecture
 - Refactored Tkinter presentation layer into dedicated, decoupled tab components (`ExtractorTab`, `EditorTab`, `RiskTab`, `PreviewTab`, `HistoryTab`).
@@ -459,13 +459,9 @@ python -c "import PyPDF2, hachoir, rich, typer, tkinter; print('TraceLens v2.0 e
 
 ### Graphical User Interface (GUI)
 
-Launch the full-featured desktop interface:
+Starting in TraceLens v2.0, the desktop GUI and command-line interface are separated into independent entry points for dedicated GUI and CLI executables. Launch the full-featured desktop interface via `src/main.py`:
 ```bash
 python src/main.py
-```
-Or via the CLI shortcut:
-```bash
-tracelens gui
 ```
 
 #### GUI Workflow:
@@ -481,15 +477,18 @@ tracelens gui
 
 ### Command-Line Interface (CLI)
 
-TraceLens provides a full-featured `argparse` command-line suite with structured output, input validation, and standardized exit codes:
+TraceLens provides a lightweight, headless `argparse` command-line suite (`tracelens`) with zero Tkinter/GUI startup dependencies, structured output, input validation, and standardized exit codes:
 
 ```text
 tracelens [OPTIONS] COMMAND [ARGS]...
 ```
 
-#### Quick Examples
+#### Quick Examples & Unified Help System
 ```bash
-tracelens --help
+tracelens help                  # Display full table-based CLI workflow & command reference
+tracelens --help                # Display the same canonical CLI workflow & command reference
+tracelens extract --help        # Display detailed argparse options & examples for 'extract'
+tracelens help extract          # Display deep-dive topic guide for 'extract'
 tracelens extract example.jpg
 tracelens analyze example.jpg
 tracelens search confidential
@@ -500,7 +499,7 @@ tracelens -v extract example.jpg
 ```
 
 #### Global Options
-- `-h, --help`: Show usage help and exit (supported globally and per command: `tracelens <command> --help`).
+- `-h, --help`: Display the canonical TraceLens workflow and command reference (or per-command options via `tracelens <command> --help`) and exit.
 - `-V, --version`: Display the TraceLens version string (`TraceLens 2.0.0`) and exit.
 - `-v, --verbose`: Enable verbose diagnostic logging (`[INFO]` / `[DEBUG]`) and include detailed tracebacks on unexpected errors.
 - `-q, --quiet`: Suppress banners and non-critical messages.

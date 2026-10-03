@@ -1,8 +1,53 @@
 import pandas as pd
 import json
 import xml.etree.ElementTree as ET
-from tkinter import filedialog, messagebox
 from datetime import datetime
+
+
+class _LazyFileDialog:
+    """Lazy proxy for tkinter.filedialog so headless CLI execution does not import Tkinter at startup."""
+
+    @staticmethod
+    def asksaveasfilename(*args, **kwargs):
+        from tkinter import filedialog as _tk_filedialog
+
+        return _tk_filedialog.asksaveasfilename(*args, **kwargs)
+
+    def __getattr__(self, name: str):
+        from tkinter import filedialog as _tk_filedialog
+
+        return getattr(_tk_filedialog, name)
+
+
+class _LazyMessageBox:
+    """Lazy proxy for tkinter.messagebox so headless CLI execution does not import Tkinter at startup."""
+
+    @staticmethod
+    def showinfo(*args, **kwargs):
+        from tkinter import messagebox as _tk_messagebox
+
+        return _tk_messagebox.showinfo(*args, **kwargs)
+
+    @staticmethod
+    def showwarning(*args, **kwargs):
+        from tkinter import messagebox as _tk_messagebox
+
+        return _tk_messagebox.showwarning(*args, **kwargs)
+
+    @staticmethod
+    def showerror(*args, **kwargs):
+        from tkinter import messagebox as _tk_messagebox
+
+        return _tk_messagebox.showerror(*args, **kwargs)
+
+    def __getattr__(self, name: str):
+        from tkinter import messagebox as _tk_messagebox
+
+        return getattr(_tk_messagebox, name)
+
+
+filedialog = _LazyFileDialog()
+messagebox = _LazyMessageBox()
 from reportlab.lib.pagesizes import letter, A4
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle

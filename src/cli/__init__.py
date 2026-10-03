@@ -6,6 +6,7 @@ import sys
 from importlib import import_module
 
 _module = import_module(".cli", __name__)
+setattr(_module, "cli", _module)
 sys.modules[__name__] = _module
 
 

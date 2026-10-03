@@ -2,10 +2,13 @@
 
 This module exposes the production CLI entrypoint powered by standard library
 ``argparse`` (`build_parser`, `main`) with centralized error handling, input
-validation, consistent formatting, exit codes, and full support for the
-TraceLens service layer (`ServiceContainer`, `ExtractionService`,
-`RiskAnalysisService`, `MetadataEditorService`, `HistoryService`,
-`ReportService`, `AnalyticsService`).
+validation, consistent formatting, exit codes, a single canonical help system
+(`render_full_help`), and full support for the TraceLens service layer
+(`ServiceContainer`, `ExtractionService`, `RiskAnalysisService`,
+`MetadataEditorService`, `HistoryService`, `ReportService`, `AnalyticsService`).
+
+Note: The Tkinter GUI is packaged as a separate executable starting in TraceLens v2
+and is intentionally decoupled from the CLI startup and execution path.
 """
 
 from __future__ import annotations
@@ -19,12 +22,10 @@ import logging
 import os
 from pathlib import Path
 import sqlite3
-import subprocess
 import sys
 import traceback
 from typing import Any
 
-import click
 import pandas as pd
 from rich import box
 from rich.panel import Panel
@@ -38,18 +39,12 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from src import __version__
 from src.cli.output import (
-    app_header,
     console,
-    file_summary,
-    get_symbols,
-    lines_from_values,
     mapping_table,
-    message,
     print_error,
     print_header,
     print_info,
     print_success,
-    print_summary,
     print_warning,
     records_table,
     risk_table,
@@ -91,30 +86,15 @@ from src.core.extractor import extractor as extractor_core
 from src.core.reports import report as report_core
 from src.core.risk import risk_analyzer as risk_core
 from src.core.services import (
-    AnalyticsService,
-    ExtractionService,
-    HistoryService,
-    MetadataEditorService,
-    ReportService,
-    RiskAnalysisService,
     ServiceContainer,
     get_service_container,
     set_service_container,
 )
-from src.models import (
-    AnalyticsSummary,
-    BatchExtractionResult,
-    BatchRiskResult,
-    ExtractionResult,
-    MetadataRecord,
-    ReportConfig,
-    ReportResult,
-    RiskAssessment,
-)
+from src.models import RiskAssessment
 
 logger = get_logger("cli")
 
-# Backward compatibility references for tests and legacy callers
+# Backward-compatibility module references for service injection and tests
 db = db_core
 editor = editor_core
 extractor = extractor_core
@@ -123,7 +103,7 @@ risk_analyzer = risk_core
 
 APP_VERSION = __version__
 
-# Exit code constants documented for CLI consumers
+# Standardized CLI exit codes
 EXIT_SUCCESS = int(ExitCode.SUCCESS)
 EXIT_GENERAL_ERROR = int(ExitCode.GENERAL_ERROR)
 EXIT_INVALID_ARGS = int(ExitCode.INVALID_ARGS)
@@ -157,18 +137,6 @@ _active_state: CLIState = CLIState()
 
 
 def _get_state() -> CLIState:
-    global _active_state
-    try:
-        ctx = click.get_current_context(silent=True)
-    except Exception:
-        ctx = None
-
-    cur = ctx
-    while cur is not None:
-        if isinstance(getattr(cur, "obj", None), CLIState):
-            return cur.obj
-        cur = getattr(cur, "parent", None)
-
     return _active_state
 
 
@@ -181,7 +149,6 @@ def get_services(state: CLIState | None = None) -> ServiceContainer:
     if current_state.container is not None:
         return current_state.container
 
-    # Respect custom components if monkeypatched or explicitly configured
     custom_db = db if db is not db_core else None
     custom_extractor = extractor if extractor is not extractor_core else None
     custom_analyzer = risk_analyzer if risk_analyzer is not risk_core else None
@@ -216,8 +183,6 @@ def set_services(container: ServiceContainer | None) -> None:
     global _active_state
     set_service_container(container)
     _active_state.container = container
-    state = _get_state()
-    state.container = container
 
 
 def _configure_session_state(
@@ -249,7 +214,6 @@ def _configure_session_state(
     level = "DEBUG" if verbose else ("WARNING" if quiet else "INFO")
     setup_logging(level=level, log_to_console=False)
     set_log_level(level)
-    # Silence any pre-existing stderr StreamHandlers during CLI runs so normal output stays clean
     root_logger = logging.getLogger("tracelens")
     for handler in root_logger.handlers:
         if isinstance(handler, logging.StreamHandler) and not isinstance(handler, logging.FileHandler):
@@ -258,97 +222,18 @@ def _configure_session_state(
     return state
 
 
-def _emit_header(state: CLIState) -> None:
-    if not state.quiet:
+def _emit_header(state: CLIState | None = None) -> None:
+    active = state or _get_state()
+    if not active.quiet:
         print_header("TraceLens")
-
-
-def _print_error(text: str, *, command: str | None = None, hint: str | None = None) -> None:
-    logger.error(text)
-    msg = text if text.startswith("Error:") else f"Error: {text}"
-    print_error(msg, command=command, hint=hint)
-
-
-def _print_warning(text: str) -> None:
-    logger.warning(text)
-    print_warning(text)
-
-
-def _print_success(text: str) -> None:
-    logger.info(text)
-    print_success(text)
-
-
-def _print_info(text: str) -> None:
-    logger.info(text)
-    print_info(text)
 
 
 def _normalize_path(raw: str) -> str:
     return str(normalize_path(raw))
 
 
-def clear_screen() -> None:
-    os.system("cls" if os.name == "nt" else "clear")
-
-
-def banner() -> None:
-    console.print(app_header())
-
-
-def print_menu() -> None:
-    console.print(
-        summary_panel(
-            "Available Commands",
-            [
-                "tracelens extract file.pdf",
-                "tracelens analyze file.pdf",
-                "tracelens search confidential",
-                "tracelens report 12",
-                "tracelens batch ./samples",
-                "tracelens sanitize file.pdf",
-                "tracelens edit file.pdf --set Author=New Name",
-                "tracelens history",
-                "tracelens analytics",
-                "tracelens export json --output history.json",
-                "tracelens config",
-            ],
-            style="bright_cyan",
-        )
-    )
-
-
-def _enable_ansi_windows() -> None:
-    return None
-
-
-def prompt_path(prompt_text: str) -> str:
-    while True:
-        raw = input(f"{prompt_text}: ").strip()
-        if not raw:
-            _print_warning("Path cannot be empty.")
-            continue
-        return _normalize_path(raw)
-
-
-def pretty_print_metadata(metadata: dict[str, Any]) -> None:
-    console.print(mapping_table("Extracted Metadata", metadata))
-
-
 def _row_to_record(row: tuple[Any, ...]) -> dict[str, Any]:
     return dict(zip(DB_COLUMNS, row, strict=False))
-
-
-def _loads_metadata_blob(blob: Any) -> dict[str, Any]:
-    if isinstance(blob, dict):
-        return blob
-    if not blob:
-        return {}
-    try:
-        loaded = json.loads(blob)
-    except Exception:
-        return {}
-    return loaded if isinstance(loaded, dict) else {}
 
 
 def _load_record(record_id: int) -> dict[str, Any] | None:
@@ -359,30 +244,9 @@ def _load_record(record_id: int) -> dict[str, Any] | None:
     return record.to_dict()
 
 
-def _load_latest_record_for_path(file_path: str) -> dict[str, Any] | None:
-    services = get_services()
-    record = services.history.get_latest_by_path(file_path)
-    if not record:
-        return None
-    return record.to_dict()
-
-
-def _extract_metadata(file_path: str, *, save_to_db: bool = True) -> tuple[dict[str, Any], tuple[Any, ...] | None]:
-    services = get_services()
-    result = services.extraction.extract_file(file_path, persist=save_to_db)
-    db_row = (result.db_record_id,) if result.db_record_id else None
-    if not result.success and not result.metadata:
-        return {"Error": result.error or "Extraction failed."}, db_row
-    return result.metadata, db_row
-
-
-def _resolve_input_files(targets: list[str]) -> list[Path]:
-    return collect_files(targets, recursive=True)
-
-
 def _summarize_history_rows(rows: list[dict[str, Any]], *, title: str = "History") -> None:
     if not rows:
-        _print_warning("No history records found.")
+        print_warning("No history records found.")
         return
 
     console.print(records_table(rows, title=title))
@@ -417,45 +281,14 @@ def _default_timestamp() -> str:
     return datetime.now().strftime("%Y%m%d_%H%M%S")
 
 
-def _write_export_file(dataframe: pd.DataFrame, output_path: Path, format_name: str) -> None:
-    if format_name == "json":
-        dataframe.to_json(output_path, orient="records", indent=2)
-        return
-    if format_name == "csv":
-        dataframe.to_csv(output_path, index=False)
-        return
-    if format_name == "excel":
-        with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
-            dataframe.to_excel(writer, sheet_name="Metadata", index=False)
-        return
-    if format_name == "xml":
-        import xml.etree.ElementTree as ET
-
-        root = ET.Element("metadata_records")
-        for _, row in dataframe.iterrows():
-            record = ET.SubElement(root, "record")
-            for column in dataframe.columns:
-                element = ET.SubElement(record, column.lower().replace(" ", "_"))
-                value = row[column]
-                element.text = "" if pd.isna(value) else str(value)
-        ET.ElementTree(root).write(output_path, encoding="utf-8", xml_declaration=True)
-        return
-    if format_name == "pdf":
-        services = get_services()
-        services.report.reporter.create_pdf_from_dataframe(dataframe, str(output_path))
-        return
-    raise CLIValidationError(f"Unsupported export format: {format_name}", command="export")
-
-
 def _choose_source_metadata(source: str) -> tuple[str, dict[str, Any], dict[str, Any] | None]:
-    """Resolve report/edit source from either a valid integer record ID or an existing file path."""
+    """Resolve report source from either a valid integer record ID or an existing file path."""
     services = get_services()
     if not source or not str(source).strip():
         raise CLIValidationError("Report source cannot be empty.", command="report", exit_code=ExitCode.INVALID_ARGS)
 
     cleaned = str(source).strip()
 
-    # Check if source is a pure integer ID first, or an existing file path
     source_path = normalize_path(cleaned)
     if source_path.exists():
         if source_path.is_dir():
@@ -469,13 +302,11 @@ def _choose_source_metadata(source: str) -> tuple[str, dict[str, Any], dict[str,
             raise CLIFileError(res.error or f"Failed to extract metadata from {checked_file}", command="report")
         return str(checked_file), res.metadata, None
 
-    # If it looks like a file path (contains path separators or a file extension) and doesn't exist:
     if any(sep in cleaned for sep in ("/", "\\")) or (
         "." in Path(cleaned).name and not cleaned.lstrip("-").isdigit()
     ):
         raise CLIFileError(f"File not found: {source_path}", command="report")
 
-    # Validate as numeric record ID
     record_id = validate_record_id(cleaned)
     try:
         record = _load_record(record_id)
@@ -489,7 +320,7 @@ def _choose_source_metadata(source: str) -> tuple[str, dict[str, Any], dict[str,
 
 
 # ==============================================================================
-# Command Handlers (invoked by argparse and CLI runners)
+# Command Handlers
 # ==============================================================================
 
 
@@ -509,7 +340,6 @@ def _handle_extract(
         for file_path in validated_files:
             logger.info("Validating file: %s", file_path.name)
     else:
-        # Validate each file input strictly (rejects nonexistent files and directories)
         validated_files = []
         for raw_target in targets:
             file_path = require_file(raw_target)
@@ -568,7 +398,6 @@ def _handle_extract(
         console.print(summary_panel("Extraction Complete", summary_lines, style="green"))
         return EXIT_SUCCESS
 
-    # Multiple explicit files passed to extract
     return _run_batch_files(validated_files, no_save=no_save, state=state, command_name="extract")
 
 
@@ -1096,12 +925,9 @@ def _handle_export(
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     try:
-        if format_normalized in {"json", "xml", "csv", "excel"}:
-            ok, err_msg = services.report.export_records_dataframe(dataframe, format_normalized, str(output_path))
-            if not ok:
-                raise CLIReportError(err_msg, command="export")
-        else:
-            _write_export_file(dataframe, output_path, format_normalized)
+        ok, err_msg = services.report.export_records_dataframe(dataframe, format_normalized, str(output_path))
+        if not ok:
+            raise CLIReportError(err_msg, command="export")
         logger.info("Export completed successfully: %d records exported to %s", len(dataframe), output_path)
     except CLIError:
         raise
@@ -1334,66 +1160,16 @@ def _handle_logs(
     return EXIT_SUCCESS
 
 
-def _run_gui_main() -> None:
-    from src.gui.gui import run_gui
-
-    run_gui()
-
-
-def _project_venv_python() -> Path:
-    if os.name == "nt":
-        return PROJECT_ROOT.parent / ".venv" / "Scripts" / "python.exe"
-    return PROJECT_ROOT.parent / ".venv" / "bin" / "python"
-
-
-def _handle_gui(*, state: CLIState) -> int:
-    _emit_header(state)
-    console.print(summary_panel("Launching GUI", ["Starting the Tkinter application..."], style="cyan"))
-    try:
-        _run_gui_main()
-        return EXIT_SUCCESS
-    except ModuleNotFoundError as exc:
-        missing = exc.name or "a required package"
-        venv_python = _project_venv_python()
-
-        if venv_python.exists() and venv_python.resolve() != Path(sys.executable).resolve():
-            try:
-                subprocess.Popen([str(venv_python), str(PROJECT_ROOT / "main.py")], cwd=str(PROJECT_ROOT.parent))
-                console.print(
-                    summary_panel(
-                        "GUI Launch",
-                        [f"Current Python is missing: {missing}", f"GUI launched using project venv: {venv_python}"],
-                        style="green",
-                    )
-                )
-                return EXIT_SUCCESS
-            except Exception as launch_exc:
-                _print_error(f"Could not launch with project venv: {launch_exc}")
-
-        console.print(
-            summary_panel(
-                "GUI Dependency Missing",
-                [
-                    f"Missing package: {missing}",
-                    f"Current interpreter: {sys.executable}",
-                    "Install dependencies with: pip install -r requirements.txt",
-                ],
-                style="yellow",
-            )
-        )
-        return EXIT_GENERAL_ERROR
-    except Exception as exc:
-        raise CLIError(f"Failed to launch GUI: {exc}", command="gui") from exc
-
-
 # ==============================================================================
-# Rich Help Topics & Overview
+# Single Canonical Help & Command Metadata Source
 # ==============================================================================
 
 HELP_TOPICS: dict[str, dict[str, Any]] = {
     "extract": {
+        "is_command": True,
         "title": "Metadata Extraction & Ingestion",
         "phase": "1. Ingest",
+        "table_desc": "Extract metadata from file(s) and store in database",
         "summary": "Extract raw metadata properties from files and store records in SQLite history.",
         "syntax": "tracelens extract <targets...> [OPTIONS]",
         "arguments": [
@@ -1412,9 +1188,32 @@ HELP_TOPICS: dict[str, dict[str, Any]] = {
         "flow": "Ingests metadata into the database. Run 'tracelens analyze <file>' next to audit privacy risks, or 'tracelens report <id>' to generate documentation.",
         "related": ["analyze", "report", "batch", "search"],
     },
+    "batch": {
+        "is_command": True,
+        "title": "Batch Directory Processing",
+        "phase": "1. Ingest",
+        "table_desc": "Batch process all files in a folder with progress",
+        "summary": "Process all files in a directory with per-file progress and risk aggregation.",
+        "syntax": "tracelens batch <directory> [OPTIONS]",
+        "arguments": [
+            ("<directory>", "Directory path to scan and extract."),
+        ],
+        "options": [
+            ("--recursive / --flat", "Scan subdirectories recursively (default: --recursive)."),
+            ("--no-save", "Extract without storing records in the database."),
+        ],
+        "examples": [
+            "tracelens batch ./samples",
+            "tracelens batch ./evidence --flat --no-save",
+        ],
+        "flow": "Processes an entire folder of files resiliently, reporting per-file progress and a final summary.",
+        "related": ["extract", "analyze", "report"],
+    },
     "analyze": {
+        "is_command": True,
         "title": "Privacy & Forensic Risk Analysis",
         "phase": "2. Audit",
+        "table_desc": "Audit privacy risks, scores (0-100), and event timelines",
         "summary": "Run rule-based privacy assessments on metadata to identify sensitive leaks and forensic timelines.",
         "syntax": "tracelens analyze <targets...> [OPTIONS]",
         "arguments": [
@@ -1433,9 +1232,106 @@ HELP_TOPICS: dict[str, dict[str, Any]] = {
         "flow": "Calculates risk scores (0-100), risk levels (LOW/MEDIUM/HIGH), matched security rules (GPS, camera serials, author identities), and forensic timelines. If risks are detected, run 'tracelens sanitize <file>'.",
         "related": ["extract", "sanitize", "report"],
     },
+    "sanitize": {
+        "is_command": True,
+        "title": "Metadata Stripping & Privacy Redaction",
+        "phase": "3. Remediate",
+        "table_desc": "Strip sensitive metadata tags (GPS, author, serials)",
+        "summary": "Remove identifying metadata tags (EXIF, GPS coordinates, author, camera serials) from files.",
+        "syntax": "tracelens sanitize <targets...> [OPTIONS]",
+        "arguments": [
+            ("<targets...>", "Files or folders containing files to sanitize."),
+        ],
+        "options": [
+            ("--dry-run", "Preview which metadata tags would be removed without modifying files."),
+            ("--backup / --no-backup", "Create a .bak copy of original files before stripping (default: backup enabled)."),
+            ("--recursive / --flat", "Recursively sanitize files in directories (default: --recursive)."),
+        ],
+        "examples": [
+            "tracelens sanitize photo.jpg",
+            "tracelens sanitize ./public_release/ --dry-run",
+            "tracelens sanitize document.pdf --no-backup",
+        ],
+        "flow": "Strips sensitive metadata tags so files are safe to share publicly. Follow up with 'tracelens analyze <file>' to verify risk score is reduced to 0.",
+        "related": ["analyze", "edit", "extract"],
+    },
+    "edit": {
+        "is_command": True,
+        "title": "Metadata Field Editing & Anonymization",
+        "phase": "3. Remediate",
+        "table_desc": "Update or anonymize specific metadata keys",
+        "summary": "Update, replace, or insert specific metadata keys into a file and/or database record.",
+        "syntax": "tracelens edit <source> [OPTIONS]",
+        "arguments": [
+            ("<source>", "Target file path."),
+        ],
+        "options": [
+            ("-s, --set KEY=VALUE", "Set or overwrite a metadata field (e.g. -s Author=\"Redacted\"). Can repeat."),
+            ("--metadata-file <path>", "JSON file containing metadata key-value pairs to merge."),
+            ("--write-file / --no-write-file", "Persist metadata changes to the physical file on disk (default: enabled)."),
+            ("--save-db / --no-save-db", "Save changes to the SQLite metadata database (default: enabled)."),
+        ],
+        "examples": [
+            "tracelens edit doc.pdf -s Author='Anon'",
+            "tracelens edit document.pdf -s Author=\"Anonymous\" -s Company=\"Confidential\"",
+            "tracelens edit sample.docx --metadata-file updates.json",
+        ],
+        "flow": "Allows surgical modification or anonymization of specific metadata attributes without full stripping.",
+        "related": ["sanitize", "report", "history"],
+    },
+    "report": {
+        "is_command": True,
+        "title": "Comprehensive Audit & Forensic Reporting",
+        "phase": "4. Document",
+        "table_desc": "Generate structured TXT & publication-ready PDF reports",
+        "summary": "Generate formal plain-text (.txt) and publication-ready PDF (.pdf) audit reports.",
+        "syntax": "tracelens report <source> [OPTIONS]",
+        "arguments": [
+            ("<source>", "Database history record ID (integer) OR target file path."),
+        ],
+        "options": [
+            ("-f, --format [txt|pdf|both]", "Report output format (default: both)."),
+            ("--output-dir <path>", "Directory where report files will be written (default: current directory)."),
+        ],
+        "examples": [
+            "tracelens report 17 --format both",
+            "tracelens report evidence.pdf",
+            "tracelens report document.docx --format pdf --output-dir ./audit_reports",
+        ],
+        "flow": "Generates complete documentation including metadata tables, privacy risk evaluations, matched rules, and forensic timelines.",
+        "related": ["extract", "analyze", "export"],
+    },
+    "export": {
+        "is_command": True,
+        "title": "Structured Dataset Export",
+        "phase": "4. Document",
+        "table_desc": "Export history dataset to JSON, CSV, XML, Excel, or PDF",
+        "summary": "Export filtered database history to industry-standard data formats.",
+        "syntax": "tracelens export <format> [OPTIONS]",
+        "arguments": [
+            ("<format>", "Export format: json, csv, xml, excel, or pdf."),
+        ],
+        "options": [
+            ("-o, --output <path>", "Destination file path for the exported dataset."),
+            ("--query <text>", "Filter records by matching text in file name or file path."),
+            ("--file-type <ext>", "Filter by file extension (e.g. pdf, jpg, docx, All)."),
+            ("--date-filter <period>", "Filter by time: 'All Time', 'Today', 'This Week', 'This Month', 'Last 30 Days'."),
+            ("--sort <order>", "Sort order: 'Date (Newest)', 'Date (Oldest)', 'Name (A-Z)'."),
+            ("--limit <int>", "Maximum records to export (0 = unlimited)."),
+        ],
+        "examples": [
+            "tracelens export json -o out.json",
+            "tracelens export excel --file-type pdf --query \"contract\"",
+            "tracelens export csv --limit 100",
+        ],
+        "flow": "Produces portable audit trails for compliance, external analysis in spreadsheets, or ingestion into external tools.",
+        "related": ["report", "history", "analytics"],
+    },
     "search": {
+        "is_command": True,
         "title": "Database Metadata Search",
         "phase": "5. Monitor",
+        "table_desc": "Search historical metadata records by keyword query",
         "summary": "Search historical metadata extraction records by keyword query.",
         "syntax": "tracelens search <query> [OPTIONS]",
         "arguments": [
@@ -1454,115 +1350,11 @@ HELP_TOPICS: dict[str, dict[str, Any]] = {
         "flow": "Quickly locate previously extracted files and pass their Record ID to 'tracelens report <id>'.",
         "related": ["history", "report", "export"],
     },
-    "batch": {
-        "title": "Batch Directory Processing",
-        "phase": "1. Ingest",
-        "summary": "Process all files in a directory with per-file progress and risk aggregation.",
-        "syntax": "tracelens batch <directory> [OPTIONS]",
-        "arguments": [
-            ("<directory>", "Directory path to scan and extract."),
-        ],
-        "options": [
-            ("--recursive / --flat", "Scan subdirectories recursively (default: --recursive)."),
-            ("--no-save", "Extract without storing records in the database."),
-        ],
-        "examples": [
-            "tracelens batch ./samples",
-            "tracelens batch ./evidence --flat --no-save",
-        ],
-        "flow": "Processes an entire folder of files resiliently, reporting per-file progress and a final summary.",
-        "related": ["extract", "analyze", "report"],
-    },
-    "sanitize": {
-        "title": "Metadata Stripping & Privacy Redaction",
-        "phase": "3. Remediate",
-        "summary": "Remove identifying metadata tags (EXIF, GPS coordinates, author, camera serials) from files.",
-        "syntax": "tracelens sanitize <targets...> [OPTIONS]",
-        "arguments": [
-            ("<targets...>", "Files or folders containing files to sanitize."),
-        ],
-        "options": [
-            ("--dry-run", "Preview which metadata tags would be removed without modifying files."),
-            ("--backup / --no-backup", "Create a .bak copy of original files before stripping (default: backup enabled)."),
-            ("--recursive / --flat", "Recursively sanitize files in directories (default: --recursive)."),
-        ],
-        "examples": [
-            "tracelens sanitize image.jpg",
-            "tracelens sanitize ./public_release/ --dry-run",
-            "tracelens sanitize document.pdf --no-backup",
-        ],
-        "flow": "Strips sensitive metadata tags so files are safe to share publicly. Follow up with 'tracelens analyze <file>' to verify risk score is reduced to 0.",
-        "related": ["analyze", "edit", "extract"],
-    },
-    "edit": {
-        "title": "Metadata Field Editing & Anonymization",
-        "phase": "3. Remediate",
-        "summary": "Update, replace, or insert specific metadata keys into a file and/or database record.",
-        "syntax": "tracelens edit <source> [OPTIONS]",
-        "arguments": [
-            ("<source>", "Target file path."),
-        ],
-        "options": [
-            ("-s, --set KEY=VALUE", "Set or overwrite a metadata field (e.g. -s Author=\"Redacted\"). Can repeat."),
-            ("--metadata-file <path>", "JSON file containing metadata key-value pairs to merge."),
-            ("--write-file / --no-write-file", "Persist metadata changes to the physical file on disk (default: enabled)."),
-            ("--save-db / --no-save-db", "Save changes to the SQLite metadata database (default: enabled)."),
-        ],
-        "examples": [
-            "tracelens edit document.pdf -s Author=\"Anonymous\" -s Company=\"Confidential\"",
-            "tracelens edit sample.docx --metadata-file updates.json",
-        ],
-        "flow": "Allows surgical modification or anonymization of specific metadata attributes without full stripping.",
-        "related": ["sanitize", "report", "history"],
-    },
-    "report": {
-        "title": "Comprehensive Audit & Forensic Reporting",
-        "phase": "4. Report",
-        "summary": "Generate formal plain-text (.txt) and publication-ready PDF (.pdf) audit reports.",
-        "syntax": "tracelens report <source> [OPTIONS]",
-        "arguments": [
-            ("<source>", "Database history record ID (integer) OR target file path."),
-        ],
-        "options": [
-            ("-f, --format [txt|pdf|both]", "Report output format (default: both)."),
-            ("--output-dir <path>", "Directory where report files will be written (default: current directory)."),
-        ],
-        "examples": [
-            "tracelens report 17",
-            "tracelens report evidence.pdf",
-            "tracelens report 150 --format both",
-            "tracelens report document.docx --format pdf --output-dir ./audit_reports",
-        ],
-        "flow": "Generates complete documentation including metadata tables, privacy risk evaluations, matched rules, and forensic timelines.",
-        "related": ["extract", "analyze", "export"],
-    },
-    "export": {
-        "title": "Structured Dataset Export",
-        "phase": "4. Export",
-        "summary": "Export filtered database history to industry-standard data formats.",
-        "syntax": "tracelens export <format> [OPTIONS]",
-        "arguments": [
-            ("<format>", "Export format: json, csv, xml, excel, or pdf."),
-        ],
-        "options": [
-            ("-o, --output <path>", "Destination file path for the exported dataset."),
-            ("--query <text>", "Filter records by matching text in file name or file path."),
-            ("--file-type <ext>", "Filter by file extension (e.g. pdf, jpg, docx, All)."),
-            ("--date-filter <period>", "Filter by time: 'All Time', 'Today', 'This Week', 'This Month', 'Last 30 Days'."),
-            ("--sort <order>", "Sort order: 'Date (Newest)', 'Date (Oldest)', 'Name (A-Z)'."),
-            ("--limit <int>", "Maximum records to export (0 = unlimited)."),
-        ],
-        "examples": [
-            "tracelens export json --output history_dump.json",
-            "tracelens export excel --file-type pdf --query \"contract\"",
-            "tracelens export csv --limit 100",
-        ],
-        "flow": "Produces portable audit trails for compliance, external analysis in spreadsheets, or ingestion into external tools.",
-        "related": ["report", "history", "analytics"],
-    },
     "history": {
+        "is_command": True,
         "title": "History Record Management & Inspection",
         "phase": "5. Monitor",
+        "table_desc": "Search, inspect, delete, or clear scan history",
         "summary": "Search, inspect, delete, and manage historical metadata extraction records.",
         "syntax": "tracelens history [SUBCOMMAND] [OPTIONS]",
         "arguments": [
@@ -1579,7 +1371,7 @@ HELP_TOPICS: dict[str, dict[str, Any]] = {
             ("stats", "Display total record counts grouped by file type."),
         ],
         "examples": [
-            "tracelens history",
+            "tracelens history --query 'secret'",
             "tracelens history --limit 50 --query \"evidence\"",
             "tracelens history delete 142 --yes",
             "tracelens history stats",
@@ -1588,8 +1380,10 @@ HELP_TOPICS: dict[str, dict[str, Any]] = {
         "related": ["search", "report", "edit", "analytics"],
     },
     "analytics": {
+        "is_command": True,
         "title": "Dashboard Metrics & Aggregate Intelligence",
         "phase": "5. Monitor",
+        "table_desc": "Show intelligence metrics, risk distribution, trends",
         "summary": "Compute and display aggregate metadata analytics, privacy risk metrics, and trends.",
         "syntax": "tracelens analytics [OPTIONS]",
         "arguments": [],
@@ -1599,48 +1393,37 @@ HELP_TOPICS: dict[str, dict[str, Any]] = {
             ("--query <text>", "Filter analytics by text search."),
         ],
         "examples": [
-            "tracelens analytics",
             "tracelens analytics --date-range month",
             "tracelens analytics --file-type pdf",
         ],
         "flow": "Provides an executive summary of dataset health, risk score distribution (LOW/MED/HIGH), top risk factors, and file types.",
-        "related": ["stats", "history", "export"],
-    },
-    "stats": {
-        "title": "Quick Database Statistics",
-        "phase": "5. Monitor",
-        "summary": "Display a fast summary of database record counts and file type breakdown.",
-        "syntax": "tracelens stats",
-        "arguments": [],
-        "options": [],
-        "examples": [
-            "tracelens stats",
-        ],
-        "flow": "Convenient shortcut to check total records stored in the SQLite database.",
-        "related": ["analytics", "history"],
+        "related": ["history", "export"],
     },
     "config": {
+        "is_command": True,
         "title": "Environment & Database Configuration",
         "phase": "Utility",
+        "table_desc": "View environment config or optimize SQLite database",
         "summary": "Inspect active configuration paths and optimize the SQLite database.",
-        "syntax": "tracelens config [SUBCOMMAND]",
+        "syntax": "tracelens config [optimize]",
         "arguments": [
-            ("[SUBCOMMAND]", "Optional subcommand: optimize, logs."),
+            ("[optimize]", "Optional subcommand: optimize SQLite storage."),
         ],
         "options": [
-            ("optimize", "Perform SQLite optimization to improve query performance."),
-            ("logs", "Inspect recent log entries."),
+            ("optimize", "Perform SQLite VACUUM/ANALYZE optimization to improve query performance."),
         ],
         "examples": [
-            "tracelens config",
             "tracelens config optimize",
+            "tracelens config",
         ],
         "flow": "Use 'optimize' periodically after large batch scans or record deletions.",
         "related": ["logs", "history"],
     },
     "logs": {
+        "is_command": True,
         "title": "Application Execution Logs",
         "phase": "Utility",
+        "table_desc": "Inspect, view path, or clear application logs",
         "summary": "Inspect recent log messages, check log file path, or clear log buffer.",
         "syntax": "tracelens logs [OPTIONS]",
         "arguments": [],
@@ -1650,30 +1433,37 @@ HELP_TOPICS: dict[str, dict[str, Any]] = {
             ("--clear", "Clear log file on disk and in-memory log buffer."),
         ],
         "examples": [
-            "tracelens logs",
-            "tracelens logs -n 100",
+            "tracelens logs -n 50",
             "tracelens logs --path",
             "tracelens logs --clear",
         ],
         "flow": "Helps troubleshoot unsupported formats, extraction warnings, or database connectivity issues.",
         "related": ["config"],
     },
-    "gui": {
-        "title": "TraceLens Graphical User Interface",
-        "phase": "Interface",
-        "summary": "Launch the desktop Tkinter application for visual inspection and analysis.",
-        "syntax": "tracelens gui",
-        "arguments": [],
+    "help": {
+        "is_command": True,
+        "title": "CLI Workflow & Command Reference Guide",
+        "phase": "Utility",
+        "table_desc": "Display full workflow guide or topic-specific help",
+        "summary": "Display the canonical TraceLens CLI workflow pipeline, command table, and topic guides.",
+        "syntax": "tracelens help [COMMAND]",
+        "arguments": [
+            ("[COMMAND]", "Optional command or topic name (e.g. extract, analyze, report, workflow)."),
+        ],
         "options": [],
         "examples": [
-            "tracelens gui",
+            "tracelens help",
+            "tracelens help extract",
+            "tracelens help workflow",
         ],
-        "flow": "Opens the complete desktop UI with file processing, risk dashboards, and timeline visualizations.",
-        "related": ["extract", "analyze"],
+        "flow": "Provides both an end-to-end operational overview and deep-dive command documentation.",
+        "related": ["extract", "analyze", "report", "batch"],
     },
     "workflow": {
+        "is_command": False,
         "title": "TraceLens End-to-End Pipeline & Workflows",
         "phase": "Overview",
+        "table_desc": "Detailed walkthrough of end-to-end operational workflows",
         "summary": "Detailed walkthrough of how TraceLens commands connect into end-to-end operational workflows.",
         "syntax": "tracelens help workflow",
         "arguments": [],
@@ -1709,7 +1499,7 @@ def _render_workflow_panel() -> Panel:
         "      v",
         "[bold green]STAGE 5: MONITOR[/bold green]     [white]tracelens search <query>[/white]          Search historical records by keyword",
         "                     [white]tracelens history[/white]                 Inspect & manage past scans",
-        "                     [white]tracelens analytics / stats[/white]       View risk distributions & metrics",
+        "                     [white]tracelens analytics[/white]               View risk distributions & metrics",
     ]
     return Panel(
         "\n".join(lines),
@@ -1721,7 +1511,7 @@ def _render_workflow_panel() -> Panel:
 
 
 def _render_command_table() -> Table:
-    """Build the master command reference table."""
+    """Build the master command reference table from the canonical `HELP_TOPICS` definitions."""
     table = Table(
         title="Command Reference",
         box=box.ROUNDED,
@@ -1733,24 +1523,16 @@ def _render_command_table() -> Table:
     table.add_column("Description", style="white", overflow="fold")
     table.add_column("Example Usage", style="green", no_wrap=False)
 
-    command_rows = [
-        ("extract", "1. Ingest", "Extract metadata from file(s) and store in database", "tracelens extract photo.jpg"),
-        ("batch", "1. Ingest", "Batch process all files in a folder with progress", "tracelens batch ./samples"),
-        ("analyze", "2. Audit", "Audit privacy risks, scores (0-100), and event timelines", "tracelens analyze file.pdf"),
-        ("sanitize", "3. Remediate", "Strip sensitive metadata tags (GPS, author, serials)", "tracelens sanitize photo.jpg"),
-        ("edit", "3. Remediate", "Update or anonymize specific metadata keys", "tracelens edit doc.pdf -s Author='Anon'"),
-        ("report", "4. Document", "Generate structured TXT & publication-ready PDF reports", "tracelens report 17 --format both"),
-        ("export", "4. Document", "Export history dataset to JSON, CSV, XML, Excel, or PDF", "tracelens export json -o out.json"),
-        ("search", "5. Monitor", "Search historical metadata records by keyword query", "tracelens search confidential"),
-        ("history", "5. Monitor", "Search, inspect, delete, or clear scan history", "tracelens history --query 'secret'"),
-        ("analytics", "5. Monitor", "Show intelligence metrics, risk distribution, trends", "tracelens analytics --date-range month"),
-        ("stats", "5. Monitor", "Quick overview of database record counts", "tracelens stats"),
-        ("config", "Utility", "View environment config or optimize SQLite database", "tracelens config optimize"),
-        ("logs", "Utility", "Inspect, view path, or clear application logs", "tracelens logs -n 50"),
-        ("gui", "Interface", "Launch the desktop Tkinter graphical user interface", "tracelens gui"),
-    ]
-    for cmd, phase, desc, ex in command_rows:
-        table.add_row(cmd, phase, desc, ex)
+    for cmd_name, info in HELP_TOPICS.items():
+        if not info.get("is_command", False):
+            continue
+        examples = info.get("examples") or [f"tracelens {cmd_name}"]
+        table.add_row(
+            cmd_name,
+            info["phase"],
+            info.get("table_desc", info["summary"]),
+            examples[0],
+        )
     return table
 
 
@@ -1775,18 +1557,8 @@ def _render_scenarios_panel() -> Panel:
     )
 
 
-def _display_general_help() -> None:
-    """Display the complete TraceLens CLI pipeline, command table, and workflow guide."""
-    console.print(_render_workflow_panel())
-    console.print(_render_command_table())
-    console.print(_render_scenarios_panel())
-    console.print(
-        "[dim]Tip: Run [bold cyan]tracelens <command> --help[/bold cyan] or [bold cyan]tracelens help <command>[/bold cyan] for in-depth flags, options, and examples.[/dim]\n"
-    )
-
-
 def _display_topic_help(topic: str) -> None:
-    """Display deep-dive help for a specific command or topic."""
+    """Display deep-dive help for a specific command or topic from `HELP_TOPICS`."""
     info = HELP_TOPICS.get(topic)
     if not info:
         console.print(
@@ -1799,7 +1571,7 @@ def _display_topic_help(topic: str) -> None:
                 style="yellow",
             )
         )
-        _display_general_help()
+        render_full_help(include_header=False)
         return
 
     overview_lines = [
@@ -1833,9 +1605,28 @@ def _display_topic_help(topic: str) -> None:
         console.print(f"[dim]Related commands: {related_str}[/dim]\n")
 
 
-def help_text() -> None:
-    """Display CLI help overview (used by interactive menu)."""
-    _display_general_help()
+def render_full_help(
+    topic: str | None = None,
+    *,
+    state: CLIState | None = None,
+    include_header: bool = True,
+) -> None:
+    """Single canonical help renderer used by both `tracelens help` and `tracelens --help`."""
+    if include_header:
+        _emit_header(state)
+
+    if topic:
+        _display_topic_help(topic.strip().lower())
+        return
+
+    print("usage: tracelens [-h] [-v] [-q] [--db-path PATH] [-V] COMMAND ...")
+    console.print(_render_workflow_panel())
+    console.print(_render_command_table())
+    console.print(_render_scenarios_panel())
+    console.print(
+        "[dim]Global Options: -h/--help, -V/--version, -v/--verbose, -q/--quiet, --db-path PATH[/dim]\n"
+        "[dim]Tip: Run [bold cyan]tracelens <command> --help[/bold cyan] or [bold cyan]tracelens help <command>[/bold cyan] for in-depth flags, options, and examples.[/dim]\n"
+    )
 
 
 # ==============================================================================
@@ -1852,11 +1643,17 @@ class _ParserSignal(Exception):
 
 
 class TraceLensArgumentParser(argparse.ArgumentParser):
-    """Custom ArgumentParser providing consistent forensic CLI error formatting and exit codes."""
+    """Custom ArgumentParser providing canonical help rendering, error formatting, and exit codes."""
 
     def __init__(self, *args: Any, command_label: str | None = None, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.command_label = command_label
+
+    def print_help(self, file: Any = None) -> None:
+        if self.command_label is None:
+            render_full_help()
+            return
+        super().print_help(file=file)
 
     def error(self, message_text: str) -> None:
         cmd = self.command_label
@@ -1902,33 +1699,35 @@ def _add_shared_global_options(parser: argparse.ArgumentParser, *, is_root: bool
     )
 
 
+def _add_canonical_subparser(
+    subparsers: Any,
+    command_name: str,
+    *,
+    parents: list[argparse.ArgumentParser],
+) -> TraceLensArgumentParser:
+    """Create a subparser populated from the canonical `HELP_TOPICS` source of truth."""
+    info = HELP_TOPICS[command_name]
+    examples = info.get("examples", [])
+    epilog = ("Examples:\n  " + "\n  ".join(examples)) if examples else None
+    return subparsers.add_parser(
+        command_name,
+        parents=parents,
+        command_label=command_name,
+        help=info.get("table_desc", info["summary"]),
+        description=info["summary"],
+        epilog=epilog,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+
+
 def build_parser() -> TraceLensArgumentParser:
     """Construct and return the main TraceLens `argparse.ArgumentParser` with subparsers."""
     shared_parent = argparse.ArgumentParser(add_help=False)
     _add_shared_global_options(shared_parent, is_root=False)
 
-    epilog_text = (
-        "Examples:\n"
-        "  tracelens extract example.jpg\n"
-        "  tracelens analyze example.jpg\n"
-        "  tracelens search confidential\n"
-        "  tracelens report 17\n"
-        "  tracelens batch ./samples\n"
-        "  tracelens -v extract example.jpg\n"
-        "  tracelens --version\n\n"
-        "Exit Codes:\n"
-        "  0  Success\n"
-        "  1  General / unexpected error\n"
-        "  2  Invalid command or argument\n"
-        "  3  File or directory path error\n"
-        "  4  Database or storage error\n"
-        "  5  Report generation or export error"
-    )
-
     parser = TraceLensArgumentParser(
         prog="tracelens",
         description="TraceLens: Digital forensics and metadata analysis toolkit.",
-        epilog=epilog_text,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     _add_shared_global_options(parser, is_root=True)
@@ -1949,20 +1748,7 @@ def build_parser() -> TraceLensArgumentParser:
     )
 
     # 1. extract
-    extract_parser = subparsers.add_parser(
-        "extract",
-        parents=[shared_parent],
-        command_label="extract",
-        help="Extract metadata from a file and store it in the database.",
-        description="Extract metadata fields from one or more files and optionally store records in SQLite.",
-        epilog=(
-            "Examples:\n"
-            "  tracelens extract example.jpg\n"
-            "  tracelens extract document.pdf --no-save\n"
-            "  tracelens -v extract example.jpg"
-        ),
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
+    extract_parser = _add_canonical_subparser(subparsers, "extract", parents=[shared_parent])
     extract_parser.add_argument(
         "targets",
         nargs="+",
@@ -1997,20 +1783,35 @@ def build_parser() -> TraceLensArgumentParser:
         help="Disable recursive scanning.",
     )
 
-    # 2. analyze
-    analyze_parser = subparsers.add_parser(
-        "analyze",
-        parents=[shared_parent],
-        command_label="analyze",
-        help="Analyze a file for privacy exposure, risk score, and forensic anomalies.",
-        description="Evaluate file metadata against forensic and privacy rules (0-100 risk score, timeline, anomalies).",
-        epilog=(
-            "Examples:\n"
-            "  tracelens analyze example.jpg\n"
-            "  tracelens analyze ./evidence --recursive --threshold 30"
-        ),
-        formatter_class=argparse.RawDescriptionHelpFormatter,
+    # 2. batch
+    batch_parser = _add_canonical_subparser(subparsers, "batch", parents=[shared_parent])
+    batch_parser.add_argument(
+        "directory",
+        metavar="DIRECTORY",
+        help="Path to the directory to process in batch.",
     )
+    batch_parser.add_argument(
+        "--recursive",
+        dest="recursive",
+        action="store_true",
+        default=True,
+        help="Scan directory recursively (default).",
+    )
+    batch_parser.add_argument(
+        "--flat",
+        dest="recursive",
+        action="store_false",
+        help="Only process files in the top-level directory.",
+    )
+    batch_parser.add_argument(
+        "--no-save",
+        action="store_true",
+        default=False,
+        help="Extract metadata without saving records to the database.",
+    )
+
+    # 3. analyze
+    analyze_parser = _add_canonical_subparser(subparsers, "analyze", parents=[shared_parent])
     analyze_parser.add_argument(
         "targets",
         nargs="+",
@@ -2044,138 +1845,8 @@ def build_parser() -> TraceLensArgumentParser:
         help="Do not persist extracted metadata during risk analysis.",
     )
 
-    # 3. search
-    search_parser = subparsers.add_parser(
-        "search",
-        parents=[shared_parent],
-        command_label="search",
-        help="Search stored metadata records in the database.",
-        description="Search historical metadata records in the SQLite database by keyword query.",
-        epilog=(
-            "Examples:\n"
-            "  tracelens search report\n"
-            "  tracelens search invoice --file-type pdf --limit 10"
-        ),
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    search_parser.add_argument(
-        "query",
-        metavar="QUERY",
-        help="Non-empty search query to match against file names and paths.",
-    )
-    search_parser.add_argument(
-        "--file-type",
-        default="All",
-        metavar="TYPE",
-        help="Filter by file extension (e.g. pdf, jpg, All).",
-    )
-    search_parser.add_argument(
-        "--date-filter",
-        default="All Time",
-        metavar="PERIOD",
-        help="Filter by time range ('All Time', 'Today', 'This Week', 'This Month', 'Last 30 Days').",
-    )
-    search_parser.add_argument(
-        "--sort",
-        default="Date (Newest)",
-        metavar="ORDER",
-        help="Sort order ('Date (Newest)', 'Date (Oldest)', 'Name (A-Z)').",
-    )
-    search_parser.add_argument(
-        "--limit",
-        type=int,
-        default=20,
-        metavar="N",
-        help="Maximum number of records to display (default: 20).",
-    )
-
-    # 4. report
-    report_parser = subparsers.add_parser(
-        "report",
-        parents=[shared_parent],
-        command_label="report",
-        help="Generate TXT/PDF forensic reports from a record ID or file.",
-        description="Generate structured TXT and/or PDF forensic audit reports for a database record ID or file.",
-        epilog=(
-            "Examples:\n"
-            "  tracelens report 17\n"
-            "  tracelens report example.jpg --format pdf --output-dir ./reports"
-        ),
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    report_parser.add_argument(
-        "source",
-        metavar="ID",
-        help="Database record ID (integer) or target file path.",
-    )
-    report_parser.add_argument(
-        "-f",
-        "--format",
-        dest="format_name",
-        default="both",
-        metavar="FORMAT",
-        help="Output report format: txt, pdf, or both (default: both).",
-    )
-    report_parser.add_argument(
-        "--output-dir",
-        default=str(PROJECT_ROOT),
-        metavar="DIR",
-        help="Directory where generated report files should be saved.",
-    )
-
-    # 5. batch
-    batch_parser = subparsers.add_parser(
-        "batch",
-        parents=[shared_parent],
-        command_label="batch",
-        help="Batch process all files in a directory with progress reporting.",
-        description="Scan a directory, extract metadata from all discovered files, and report batch progress and risk summary.",
-        epilog=(
-            "Examples:\n"
-            "  tracelens batch ./samples\n"
-            "  tracelens batch ./evidence --flat --no-save"
-        ),
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    batch_parser.add_argument(
-        "directory",
-        metavar="DIRECTORY",
-        help="Path to the directory to process in batch.",
-    )
-    batch_parser.add_argument(
-        "--recursive",
-        dest="recursive",
-        action="store_true",
-        default=True,
-        help="Scan directory recursively (default).",
-    )
-    batch_parser.add_argument(
-        "--flat",
-        dest="recursive",
-        action="store_false",
-        help="Only process files in the top-level directory.",
-    )
-    batch_parser.add_argument(
-        "--no-save",
-        action="store_true",
-        default=False,
-        help="Extract metadata without saving records to the database.",
-    )
-
-    # 6. sanitize
-    sanitize_parser = subparsers.add_parser(
-        "sanitize",
-        parents=[shared_parent],
-        command_label="sanitize",
-        help="Sanitize files by stripping sensitive metadata tags.",
-        description="Strip sensitive metadata tags (GPS, camera, author, editing traces) from one or more files.",
-        epilog=(
-            "Examples:\n"
-            "  tracelens sanitize photo.jpg\n"
-            "  tracelens sanitize document.pdf --no-backup"
-        ),
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
+    # 4. sanitize
+    sanitize_parser = _add_canonical_subparser(subparsers, "sanitize", parents=[shared_parent])
     sanitize_parser.add_argument(
         "targets",
         nargs="+",
@@ -2215,20 +1886,8 @@ def build_parser() -> TraceLensArgumentParser:
         help="Preview sanitization without modifying files.",
     )
 
-    # 7. edit
-    edit_parser = subparsers.add_parser(
-        "edit",
-        parents=[shared_parent],
-        command_label="edit",
-        help="Modify metadata fields on a file and/or database record.",
-        description="Update metadata fields using KEY=VALUE pairs or a JSON file.",
-        epilog=(
-            "Examples:\n"
-            "  tracelens edit document.pdf --set Author='Jane Doe'\n"
-            "  tracelens edit document.pdf --metadata-file updates.json"
-        ),
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
+    # 5. edit
+    edit_parser = _add_canonical_subparser(subparsers, "edit", parents=[shared_parent])
     edit_parser.add_argument(
         "file_path",
         metavar="FILE",
@@ -2277,20 +1936,30 @@ def build_parser() -> TraceLensArgumentParser:
         help="Do not save updated metadata to the database.",
     )
 
-    # 8. export
-    export_parser = subparsers.add_parser(
-        "export",
-        parents=[shared_parent],
-        command_label="export",
-        help="Export database history records to json, xml, csv, excel, or pdf.",
-        description="Export filtered metadata records from SQLite into structured files.",
-        epilog=(
-            "Examples:\n"
-            "  tracelens export json --output history.json\n"
-            "  tracelens export csv --limit 50 --output recent.csv"
-        ),
-        formatter_class=argparse.RawDescriptionHelpFormatter,
+    # 6. report
+    report_parser = _add_canonical_subparser(subparsers, "report", parents=[shared_parent])
+    report_parser.add_argument(
+        "source",
+        metavar="ID",
+        help="Database record ID (integer) or target file path.",
     )
+    report_parser.add_argument(
+        "-f",
+        "--format",
+        dest="format_name",
+        default="both",
+        metavar="FORMAT",
+        help="Output report format: txt, pdf, or both (default: both).",
+    )
+    report_parser.add_argument(
+        "--output-dir",
+        default=str(PROJECT_ROOT),
+        metavar="DIR",
+        help="Directory where generated report files should be saved.",
+    )
+
+    # 7. export
+    export_parser = _add_canonical_subparser(subparsers, "export", parents=[shared_parent])
     export_parser.add_argument(
         "format_name",
         metavar="FORMAT",
@@ -2330,22 +1999,41 @@ def build_parser() -> TraceLensArgumentParser:
         help="Maximum records to export (0 means no limit).",
     )
 
-    # 9. history
-    history_parser = subparsers.add_parser(
-        "history",
-        parents=[shared_parent],
-        command_label="history",
-        help="Browse, inspect, and manage metadata extraction history.",
-        description="Browse, filter, or manage historical metadata records stored in SQLite.",
-        epilog=(
-            "Examples:\n"
-            "  tracelens history --limit 20\n"
-            "  tracelens history stats\n"
-            "  tracelens history delete 12 --yes\n"
-            "  tracelens history clear --yes"
-        ),
-        formatter_class=argparse.RawDescriptionHelpFormatter,
+    # 8. search
+    search_parser = _add_canonical_subparser(subparsers, "search", parents=[shared_parent])
+    search_parser.add_argument(
+        "query",
+        metavar="QUERY",
+        help="Non-empty search query to match against file names and paths.",
     )
+    search_parser.add_argument(
+        "--file-type",
+        default="All",
+        metavar="TYPE",
+        help="Filter by file extension (e.g. pdf, jpg, All).",
+    )
+    search_parser.add_argument(
+        "--date-filter",
+        default="All Time",
+        metavar="PERIOD",
+        help="Filter by time range ('All Time', 'Today', 'This Week', 'This Month', 'Last 30 Days').",
+    )
+    search_parser.add_argument(
+        "--sort",
+        default="Date (Newest)",
+        metavar="ORDER",
+        help="Sort order ('Date (Newest)', 'Date (Oldest)', 'Name (A-Z)').",
+    )
+    search_parser.add_argument(
+        "--limit",
+        type=int,
+        default=20,
+        metavar="N",
+        help="Maximum number of records to display (default: 20).",
+    )
+
+    # 9. history
+    history_parser = _add_canonical_subparser(subparsers, "history", parents=[shared_parent])
     history_parser.add_argument(
         "history_action",
         nargs="?",
@@ -2395,82 +2083,37 @@ def build_parser() -> TraceLensArgumentParser:
         help="Skip confirmation prompt for delete/clear.",
     )
 
-    # 10. analytics & stats
-    for cmd_name, cmd_help in (
-        ("analytics", "Compute and display aggregate metadata analytics and risk metrics."),
-        ("stats", "Display aggregate metadata analytics and metrics (alias for analytics)."),
-    ):
-        analytics_parser = subparsers.add_parser(
-            cmd_name,
-            parents=[shared_parent],
-            command_label=cmd_name,
-            help=cmd_help,
-            description=cmd_help,
-            formatter_class=argparse.RawDescriptionHelpFormatter,
-        )
-        analytics_parser.add_argument(
-            "--query",
-            default="",
-            help="Filter analytics by text search.",
-        )
-        analytics_parser.add_argument(
-            "--file-type",
-            default="all",
-            help="Filter by file type extension.",
-        )
-        analytics_parser.add_argument(
-            "--date-range",
-            default="all",
-            help="Date filter: all, today, week, month, year.",
-        )
+    # 10. analytics
+    analytics_parser = _add_canonical_subparser(subparsers, "analytics", parents=[shared_parent])
+    analytics_parser.add_argument(
+        "--query",
+        default="",
+        help="Filter analytics by text search.",
+    )
+    analytics_parser.add_argument(
+        "--file-type",
+        default="all",
+        help="Filter by file type extension.",
+    )
+    analytics_parser.add_argument(
+        "--date-range",
+        default="all",
+        help="Date filter: all, today, week, month, year.",
+    )
 
     # 11. config
-    config_parser = subparsers.add_parser(
-        "config",
-        parents=[shared_parent],
-        command_label="config",
-        help="Inspect and optimize TraceLens configuration and database.",
-        description="Inspect runtime configuration paths or optimize the SQLite database.",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
+    config_parser = _add_canonical_subparser(subparsers, "config", parents=[shared_parent])
     config_parser.add_argument(
         "config_action",
         nargs="?",
         default=None,
-        choices=["optimize", "logs"],
+        choices=["optimize"],
         metavar="SUBCOMMAND",
-        help="Optional subcommand: optimize, logs.",
-    )
-    config_parser.add_argument(
-        "-n",
-        "--lines",
-        type=int,
-        default=50,
-        help="Number of recent log lines to display when using 'config logs'.",
-    )
-    config_parser.add_argument(
-        "--clear",
-        action="store_true",
-        default=False,
-        help="Clear logs when using 'config logs'.",
-    )
-    config_parser.add_argument(
-        "-p",
-        "--path",
-        action="store_true",
-        default=False,
-        help="Print active log file path when using 'config logs'.",
+        help="Optional subcommand: optimize.",
     )
 
     # 12. logs
-    logs_parser = subparsers.add_parser(
-        "logs",
-        parents=[shared_parent],
-        command_label="logs",
-        help="Inspect recent application logs, view log path, or clear logs.",
-        description="Inspect recent application logs, view log file location, or clear logs.",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
+    logs_parser = _add_canonical_subparser(subparsers, "logs", parents=[shared_parent])
     logs_parser.add_argument(
         "-n",
         "--lines",
@@ -2492,38 +2135,14 @@ def build_parser() -> TraceLensArgumentParser:
         help="Print path to the active log file.",
     )
 
-    # 13. gui
-    subparsers.add_parser(
-        "gui",
-        parents=[shared_parent],
-        command_label="gui",
-        help="Launch the TraceLens Tkinter graphical user interface.",
-        description="Start the desktop Tkinter graphical user interface.",
-    )
-
-    # 14. help
-    help_parser = subparsers.add_parser(
-        "help",
-        parents=[shared_parent],
-        command_label="help",
-        help="Display workflow guide and detailed help for any command.",
-        description="Display comprehensive TraceLens CLI workflow, pipeline guide, and command reference.",
-    )
+    # 13. help
+    help_parser = _add_canonical_subparser(subparsers, "help", parents=[shared_parent])
     help_parser.add_argument(
         "command_name",
         nargs="?",
         default=None,
         metavar="COMMAND",
         help="Optional command name or topic (e.g. extract, analyze, search, report, batch).",
-    )
-
-    # 15. interactive (backward compatibility for legacy interactive menu)
-    subparsers.add_parser(
-        "interactive",
-        parents=[shared_parent],
-        command_label="interactive",
-        help="Launch the legacy interactive menu interface.",
-        description="Run the interactive menu-driven CLI session for backward compatibility.",
     )
 
     return parser
@@ -2538,8 +2157,8 @@ def _dispatch_parsed_args(ns: argparse.Namespace, state: CLIState) -> int:
             summary_panel(
                 "Quick Start",
                 [
-                    "tracelens --help              # View CLI usage & options",
                     "tracelens help                # View complete CLI workflow & command guide",
+                    "tracelens --help              # Display the same canonical CLI command guide",
                     "tracelens extract file.pdf    # Ingest metadata into database",
                     "tracelens analyze file.pdf    # Assess privacy risks & scores",
                     "tracelens search confidential # Search stored metadata records",
@@ -2639,7 +2258,7 @@ def _dispatch_parsed_args(ns: argparse.Namespace, state: CLIState) -> int:
             sort=ns.sort,
             state=state,
         )
-    if cmd in {"analytics", "stats"}:
+    if cmd == "analytics":
         return _handle_analytics(
             query=ns.query,
             file_type=ns.file_type,
@@ -2647,25 +2266,13 @@ def _dispatch_parsed_args(ns: argparse.Namespace, state: CLIState) -> int:
             state=state,
         )
     if cmd == "config":
-        action = ns.config_action
-        if action == "optimize":
+        if ns.config_action == "optimize":
             return _handle_config_optimize(state=state)
-        if action == "logs":
-            return _handle_logs(lines=ns.lines, clear=ns.clear, path=ns.path, state=state)
         return _handle_config_show(state=state)
     if cmd == "logs":
         return _handle_logs(lines=ns.lines, clear=ns.clear, path=ns.path, state=state)
-    if cmd == "gui":
-        return _handle_gui(state=state)
     if cmd == "help":
-        _emit_header(state)
-        if ns.command_name:
-            _display_topic_help(ns.command_name.strip().lower())
-        else:
-            _display_general_help()
-        return EXIT_SUCCESS
-    if cmd == "interactive":
-        run_cli()
+        render_full_help(ns.command_name, state=state)
         return EXIT_SUCCESS
 
     raise CLIValidationError(f"Unknown command: {cmd}", exit_code=ExitCode.INVALID_ARGS)
@@ -2788,206 +2395,6 @@ app = typer.Typer(
 def _typer_root_callback(ctx: typer.Context) -> None:
     """Root callback retained for Typer introspection."""
     return None
-
-
-# ==============================================================================
-# Legacy Interactive CLI Functions (Preserved for Backward Compatibility)
-# ==============================================================================
-
-
-def quick_extract() -> None:
-    file_path = prompt_path("Enter file path")
-    metadata, _ = extractor.extract_and_store(file_path)
-
-    if not metadata or "Error" in metadata:
-        msg = metadata.get("Error", "Extraction failed.") if isinstance(metadata, dict) else "Extraction failed."
-        _print_error(msg)
-        return
-
-    _print_success("Metadata extracted and saved to database.")
-    pretty_print_metadata(metadata)
-
-
-def analyze_single_file_risk() -> None:
-    file_path = prompt_path("Enter file path")
-    metadata = extractor.extract(file_path)
-
-    if not metadata or "Error" in metadata:
-        msg = metadata.get("Error", "Extraction failed.") if isinstance(metadata, dict) else "Extraction failed."
-        _print_error(msg)
-        return
-
-    analysis = risk_analyzer.analyze_metadata(metadata, file_path)
-    console.print(risk_table(analysis))
-    console.print(f"File: {analysis.get('file_name', '')}")
-    console.print(f"Risk Score: {analysis.get('risk_score', 0)}/100")
-    console.print(f"Risk Level: {analysis.get('risk_level', 'N/A')}")
-    reasons = analysis.get("reasons", []) or []
-    if reasons:
-        console.print(summary_panel("Reasons", [f"- {reason}" for reason in reasons], style="yellow"))
-    timeline = analysis.get("timeline", []) or []
-    if timeline:
-        console.print(timeline_table(timeline))
-        for event in timeline:
-            console.print(f"{event.get('event', 'Event')}: {event.get('timestamp', '')}")
-
-
-def generate_report_cli() -> None:
-    file_path = prompt_path("Enter file path")
-    metadata = extractor.extract(file_path)
-
-    if not metadata or "Error" in metadata:
-        msg = metadata.get("Error", "Extraction failed.") if isinstance(metadata, dict) else "Extraction failed."
-        _print_error(msg)
-        return
-
-    analysis = risk_analyzer.analyze_metadata(metadata, file_path)
-    text = report.generate_report_text(metadata, file_path, risk_analysis=analysis)
-
-    console.print(summary_panel("Report Preview", [_preview_report_text(text)], style="bright_cyan"))
-    choice = input("Save report as (txt/pdf/both/none) [both]: ").strip().lower() or "both"
-
-    base = Path(file_path)
-    timestamp = _default_timestamp()
-    txt_out = ROOT_DIR / f"{base.stem}_report_{timestamp}.txt"
-    pdf_out = ROOT_DIR / f"{base.stem}_report_{timestamp}.pdf"
-
-    if choice in {"txt", "both"}:
-        txt_out.write_text(text, encoding="utf-8")
-        _print_success(f"TXT saved: {txt_out}")
-
-    if choice in {"pdf", "both"}:
-        report.create_pdf_report_from_text(text, str(pdf_out))
-        _print_success(f"PDF saved: {pdf_out}")
-
-    if choice not in {"txt", "pdf", "both", "none"}:
-        _print_warning("Unknown option. Nothing saved.")
-
-
-def _iter_files(folder: Path) -> list[Path]:
-    return [path for path in folder.rglob("*") if path.is_file()]
-
-
-def batch_scan_folder() -> None:
-    folder_raw = prompt_path("Enter folder path")
-    try:
-        folder = require_directory(folder_raw)
-    except CLIValidationError as error:
-        _print_error(str(error))
-        return
-
-    files = _iter_files(folder)
-    if not files:
-        _print_warning("No files found in the selected folder.")
-        return
-
-    console.print(summary_panel("Batch Scan", [f"Scanning {len(files)} file(s)..."], style="cyan"))
-    entries: list[dict[str, Any]] = []
-    failed = 0
-    total = len(files)
-
-    for idx, file_path in enumerate(files, start=1):
-        print(f"Processing {idx}/{total}: {file_path.name}")
-        metadata = extractor.extract(str(file_path))
-        if not metadata or "Error" in metadata:
-            failed += 1
-        else:
-            db.insert_metadata(str(file_path), metadata)
-            entries.append({"file_path": str(file_path), "metadata": metadata})
-
-    summary = risk_analyzer.analyze_batch(entries) if entries else {"risk_counts": {"LOW": 0, "MEDIUM": 0, "HIGH": 0}}
-    counts = summary.get("risk_counts", {})
-    console.print(
-        summary_panel(
-            "Batch Scan Summary",
-            [
-                f"Total: {total}",
-                f"Successful: {len(entries)}",
-                f"Failed: {failed}",
-                f"LOW: {counts.get('LOW', 0)}",
-                f"MEDIUM: {counts.get('MEDIUM', 0)}",
-                f"HIGH: {counts.get('HIGH', 0)}",
-            ],
-            style="green",
-        )
-    )
-
-
-def view_recent_history() -> None:
-    raw = input("How many records to show? [10]: ").strip()
-    limit = 10
-    if raw:
-        try:
-            limit = max(1, int(raw))
-        except ValueError:
-            _print_warning("Invalid number. Showing 10 records.")
-
-    rows = db.get_recent_records(limit=limit)
-    if not rows:
-        _print_warning("No history records found.")
-        return
-
-    display_rows = [_row_to_record(row) for row in rows]
-    _summarize_history_rows(display_rows, title="Recent History")
-
-
-def launch_gui() -> None:
-    console.print("Launching TraceLens GUI...")
-    try:
-        _run_gui_main()
-    except ModuleNotFoundError as exc:
-        missing = exc.name or "a required package"
-        venv_python = _project_venv_python()
-
-        if venv_python.exists() and venv_python.resolve() != Path(sys.executable).resolve():
-            try:
-                subprocess.Popen([str(venv_python), str(PROJECT_ROOT / "main.py")], cwd=str(PROJECT_ROOT.parent))
-                console.print(f"Current Python is missing: {missing}")
-                console.print(f"GUI launched using project venv: {venv_python}")
-                return
-            except Exception as launch_exc:
-                console.print(f"Could not launch with project venv: {launch_exc}")
-
-        console.print(f"GUI dependency missing: {missing}")
-        console.print(f"Current interpreter: {sys.executable}")
-        console.print("Install dependencies with: pip install -r requirements.txt")
-    except Exception as exc:
-        _print_error(f"Failed to launch GUI: {exc}")
-
-
-def run_cli() -> None:
-    _enable_ansi_windows()
-
-    while True:
-        clear_screen()
-        banner()
-        print_menu()
-
-        choice = input("\nChoose an option (or type help): ").strip().lower()
-        print()
-
-        if choice in {"0", "exit", "quit"}:
-            _print_success("Goodbye.")
-            break
-
-        if choice in {"7", "help"}:
-            help_text()
-        elif choice == "1":
-            quick_extract()
-        elif choice == "2":
-            analyze_single_file_risk()
-        elif choice == "3":
-            generate_report_cli()
-        elif choice == "4":
-            batch_scan_folder()
-        elif choice == "5":
-            view_recent_history()
-        elif choice == "6":
-            launch_gui()
-        else:
-            _print_warning("Invalid option. Type help for valid commands.")
-
-        input("\nPress Enter to continue...")
 
 
 if __name__ == "__main__":
