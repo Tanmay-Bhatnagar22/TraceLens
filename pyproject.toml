@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "tracelens"
 version = "2.0.0"
 description = "TraceLens metadata analysis and privacy inspection toolkit"
-readme = "README.md"
+readme = "README.txt"
 requires-python = ">=3.10"
 dependencies = [
     "PyPDF2>=3.0.0",
