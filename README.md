@@ -133,51 +133,105 @@ Version 2.0 represents a major architectural evolution of TraceLens, transformin
 
 ## Interface & Screenshots
 
-### Main Application Window
-The TraceLens desktop interface features an organized tab layout for intuitive workflow transitions.
+### Graphical User Interface (GUI)
+
+#### 1. Main Application Window
+The TraceLens desktop interface features an organized multi-tab layout for seamless transitions across extraction, editing, risk auditing, reporting, and historical analysis.
 
 ![Main Application Window](Screenshots/image.png)
 
-### Tab Demonstrations
+#### 2. Extractor Tab — Metadata Extraction & Inspection
+Browse, select, and parse files across 50+ formats to view extracted metadata properties in an organized key-value grid with automatic SQLite indexing.
 
-#### Extractor Tab
-Browse, select, and parse files to view extracted metadata properties in an organized key-value grid.
+![Extractor Tab](Screenshots/gui_extractor_tab.png)
 
-![Extractor Tab](Screenshots/20260324-1052-59.3947317.gif)
+#### 3. Editor Tab — Field-Level Editing, Write-Back & Sanitization
+Modify editable metadata fields, validate field structures, strip sensitive tags, and commit changes back to the physical file on disk (with automatic `.bak` safety backups) or the local database.
 
-#### Editor Tab
-Modify editable metadata fields, validate field structures, and commit changes back to disk or the local database.
+![Editor Tab](Screenshots/gui_editor_tab.png)
 
-![Editor Tab](Screenshots/20260324-1058-32.5778900.gif)
+#### 4. Risk Analyzer Tab — Privacy Scoring & Forensic Timeline
+Inspect calculated threat scores (`0–100`), risk tiers (`LOW`, `MEDIUM`, `HIGH`), triggered YAML privacy rules, chronological event timelines, and forensic anomaly warnings.
 
-#### Risk Analyzer Tab
-Inspect calculated risk levels, triggered privacy rules, forensic timeline events, and detected anomalies.
-
-![Risk Analyzer Tab](Screenshots/20260324-1105-59.9645562.gif)
+![Risk Analyzer Tab](Screenshots/gui_risk_analyzer_tab.png)
 
 *Note: For unmodified files, the timeline reflects single-event creation records.*
 
-#### Preview and Reports Tab
-Preview PDF reports directly inside the application and export dossier packages across multiple formats.
+#### 5. Preview & Reports Tab — Live PDF Preview & Multi-Format Export
+Preview generated PDF dossiers directly inside the application with zoom controls and export reports across PDF, TXT, JSON, XML, CSV, and Excel formats.
 
-![Preview Tab](Screenshots/20260324-1117-24.0504736.gif)
+![Preview and Reports Tab](Screenshots/gui_preview_reports_tab.png)
 
 *Note: PDF preview rendering requires Poppler binaries installed on the host system.*
 
-#### History Tab
-Search, sort, filter, and inspect previously analyzed files stored within the local SQLite database.
+#### 6. History Tab — Database Search, Filtering & Record Management
+Search, sort, filter by file type or date range, inspect historical records stored in SQLite, and bulk-export filtered datasets.
 
-![History Tab](Screenshots/20260324-1127-00.5345709.gif)
+![History Tab](Screenshots/gui_history_tab.png)
 
-#### Analytics Dashboard
-Examine aggregate metrics, file type breakdowns, and privacy risk trends across all historical scans.
+#### 7. Batch Processing Dialog — Folder Scanning & Risk Aggregation
+Scan entire folder hierarchies recursively with live progress tracking, per-file status reporting, and aggregated batch risk summaries.
 
-![Dashboard](Screenshots/20260324-1135-43.9209846.gif)
+![Batch Processing Dialog](Screenshots/gui_batch_processing.png)
 
-### Command-Line Interface
-The terminal interface provides structured tables, progress feedback, and full scriptability.
+#### 8. Analytics & Statistics Dashboard — Visual Forensic Intelligence
+Examine aggregate metrics, risk distribution charts, file format breakdowns, file size distributions, and extraction timelines across historical scans.
 
-![CLI Interface](Screenshots/20260324-1141-31.6715176.gif)
+![Analytics Dashboard](Screenshots/gui_analytics_dashboard_kpi.png)
+
+![Analytics Dashboard](Screenshots/gui_analytics_dashboard_chart.png)
+
+---
+
+### Command-Line Interface (CLI)
+
+#### 1. CLI Quick Start & Canonical Help Guide (`tracelens`, `tracelens help`, `tracelens --help`)
+Displays the startup branding, Quick Start panel, end-to-end 5-stage forensic workflow pipeline, Command Reference table, and Common Operational Workflows.
+
+![CLI Quick Start](Screenshots/cli_quick_start.png)
+
+![CLI Help Guide](Screenshots/cli_help_overview.png)
+
+#### 2. Metadata Extraction (`tracelens extract`)
+Extracts metadata from a target file, persists the record to SQLite, and outputs a concise extraction summary (or full key-value table with `--details` / `-v`).
+
+![CLI Extract](Screenshots/cli_extract.png)
+
+#### 3. Batch Directory Processing (`tracelens batch`)
+Scans a directory with per-file progress (`Processing 1/N`), isolates individual file failures, and prints a complete batch extraction and risk breakdown summary.
+
+![CLI Batch Processing](Screenshots/cli_batch.png)
+
+#### 4. Privacy & Forensic Risk Analysis (`tracelens analyze`)
+Evaluates file metadata against the YAML rules engine, displaying the risk score (`0–100`), risk level, matched rules, forensic timeline events, and remediation suggestions.
+
+![CLI Risk Analysis](Screenshots/cli_analyze.png)
+
+#### 5. Metadata Sanitization & Field Editing (`tracelens sanitize`, `tracelens edit`)
+Strips identifying EXIF/GPS/author tags with `.bak` backup protection (`sanitize`) or surgically updates specific metadata fields via `--set KEY=VALUE` or `--metadata-file` (`edit`).
+
+![CLI Sanitize](Screenshots/cli_sanitize.png)
+
+![CLI Edit](Screenshots/cli_edit.png)
+
+#### 6. Forensic Report Generation & Dataset Export (`tracelens report`, `tracelens export`)
+Generates structured `.txt` and publication-ready `.pdf` forensic reports from a database Record ID or file path (`report`), and exports filtered history records to JSON, CSV, XML, Excel, or PDF (`export`).
+
+![CLI Report Generation](Screenshots/cli_report.png)
+
+![CLI Dataset Export](Screenshots/cli_export.png)
+
+#### 7. Database Search, History Management & Analytics (`tracelens search`, `tracelens history`, `tracelens analytics`)
+Performs fast keyword searches across stored records (`search`), manages historical records and database statistics (`history`, `history stats`), and computes aggregate risk metrics (`analytics`).
+
+![CLI Search and History](Screenshots/cli_search_history.png)
+
+![CLI Analytics Dashboard](Screenshots/cli_analytics.png)
+
+#### 8. Configuration, Diagnostics & Verbose Logging (`tracelens config`, `tracelens logs`, `--verbose`)
+Displays active environment/database paths, runs SQLite `VACUUM` optimization (`config optimize`), inspects or clears application logs (`logs`), and provides step-by-step `[INFO]`/`[DEBUG]` diagnostics (`-v`).
+
+![CLI Config and Logs](Screenshots/cli_config_logs.png)
 
 ---
 
