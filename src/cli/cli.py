@@ -392,8 +392,10 @@ def _handle_extract(
             print(line)
         print()
 
-        if state.verbose or details:
-            console.print(mapping_table(f"Metadata for {file_path.name}", result.metadata))
+        if isinstance(result.metadata, dict) and result.metadata:
+            console.print(mapping_table("Extracted Metadata", result.metadata))
+        else:
+            print_info("No metadata fields found.")
 
         console.print(summary_panel("Extraction Complete", summary_lines, style="green"))
         return EXIT_SUCCESS

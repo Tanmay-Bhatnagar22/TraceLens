@@ -125,7 +125,7 @@ class ExtractionService:
 
         try:
             raw_meta = self.extractor.extract(file_path)
-            if not raw_meta or not isinstance(raw_meta, dict):
+            if raw_meta is None or not isinstance(raw_meta, dict):
                 return ExtractionResult(
                     file_path=file_path,
                     success=False,

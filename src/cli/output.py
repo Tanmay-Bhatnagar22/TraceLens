@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterable, Mapping
+from datetime import datetime
 from pathlib import Path
 import sys
 from typing import Any
@@ -158,6 +159,40 @@ def _stringify(value: Any) -> str:
     return "" if value is None else str(value)
 
 
+def format_display_timestamp(value: Any) -> str:
+    """Format an ISO or database timestamp into 'DD Mon YYYY, HH:MM AM/PM' for CLI display."""
+    if value is None:
+        return "N/A"
+    if isinstance(value, datetime):
+        return value.strftime("%d %b %Y, %I:%M %p")
+
+    text = str(value).strip()
+    if not text:
+        return "N/A"
+
+    normalized = text[:-1] + "+00:00" if text.endswith("Z") else text
+    try:
+        dt = datetime.fromisoformat(normalized)
+        return dt.strftime("%d %b %Y, %I:%M %p")
+    except ValueError:
+        pass
+
+    for fmt in (
+        "%Y-%m-%d %H:%M:%S.%f",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M",
+        "%Y/%m/%d %H:%M:%S",
+        "%d-%m-%Y %H:%M:%S",
+    ):
+        try:
+            dt = datetime.strptime(text, fmt)
+            return dt.strftime("%d %b %Y, %I:%M %p")
+        except ValueError:
+            continue
+
+    return text
+
+
 def mapping_table(title: str, mapping: Mapping[str, Any]) -> Table:
     table = Table(title=title, box=box.ROUNDED, show_lines=False, header_style="bold bright_cyan")
     table.add_column("Field", style="cyan", no_wrap=True)
@@ -169,20 +204,20 @@ def mapping_table(title: str, mapping: Mapping[str, Any]) -> Table:
 
 def records_table(rows: Iterable[Mapping[str, Any]], *, title: str = "History") -> Table:
     table = Table(title=title, box=box.ROUNDED, show_lines=False, header_style="bold bright_cyan")
-    table.add_column("ID", style="cyan", no_wrap=True)
+    table.add_column("No.", style="cyan", no_wrap=True)
     table.add_column("File Name", style="white", overflow="fold")
     table.add_column("Type", style="magenta", no_wrap=True)
     table.add_column("Size", style="green", no_wrap=True)
     table.add_column("Extracted At", style="yellow", no_wrap=True)
     table.add_column("Path", style="white", overflow="fold")
 
-    for row in rows:
+    for index, row in enumerate(rows, start=1):
         table.add_row(
-            str(row.get("id", "")),
+            str(index),
             str(row.get("file_name", "")),
             str(row.get("file_type", "")),
             str(row.get("file_size_formatted", "")),
-            str(row.get("extracted_at", "")),
+            format_display_timestamp(row.get("extracted_at")),
             str(row.get("file_path", "")),
         )
     return table
