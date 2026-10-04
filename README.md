@@ -185,11 +185,13 @@ Examine aggregate metrics, risk distribution charts, file format breakdowns, fil
 
 ### Command-Line Interface (CLI)
 
-#### 1. CLI Quick Start & Canonical Help Guide (`tracelens`, `tracelens help`, `tracelens --help`)
-Displays the startup branding, Quick Start panel, end-to-end 5-stage forensic workflow pipeline, Command Reference table, and Common Operational Workflows.
+#### 1. CLI Quick Start & Canonical  (`tracelens`, `tracelens help`, `tracelens --help`)
+Displays the startup branding, Quick Start panel, Help Guideend-to-end 5-stage forensic workflow pipeline, Command Reference table, and Common Operational Workflows.
 
+##### Quick Start
 ![CLI Quick Start](Screenshots/cli_quick_start.png)
 
+##### Help Guide
 ![CLI Help Guide](Screenshots/cli_help_overview.png)
 
 #### 2. Metadata Extraction (`tracelens extract`)
@@ -210,8 +212,10 @@ Evaluates file metadata against the YAML rules engine, displaying the risk score
 #### 5. Metadata Sanitization & Field Editing (`tracelens sanitize`, `tracelens edit`)
 Strips identifying EXIF/GPS/author tags with `.bak` backup protection (`sanitize`) or surgically updates specific metadata fields via `--set KEY=VALUE` or `--metadata-file` (`edit`).
 
+##### CLI Sanitize
 ![CLI Sanitize](Screenshots/cli_sanitize.png)
 
+##### CLI Edit
 ![CLI Edit](Screenshots/cli_edit.png)
 
 #### 6. Forensic Report Generation & Dataset Export (`tracelens report`, `tracelens export`)
@@ -219,13 +223,11 @@ Generates structured `.txt` and publication-ready `.pdf` forensic reports from a
 
 ![CLI Report Generation](Screenshots/cli_report.png)
 
-![CLI Dataset Export](Screenshots/cli_export.png)
-
 #### 7. Database Search, History Management & Analytics (`tracelens search`, `tracelens history`, `tracelens analytics`)
 Performs fast keyword searches across stored records (`search`), manages historical records and database statistics (`history`, `history stats`), and computes aggregate risk metrics (`analytics`).
-
+##### CLI Search and History
 ![CLI Search and History](Screenshots/cli_search_history.png)
-
+##### CLI Analytics
 ![CLI Analytics Dashboard](Screenshots/cli_analytics.png)
 
 #### 8. Configuration, Diagnostics & Verbose Logging (`tracelens config`, `tracelens logs`, `--verbose`)
