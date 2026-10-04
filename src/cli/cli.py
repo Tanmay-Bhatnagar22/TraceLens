@@ -21,6 +21,7 @@ import json
 import logging
 import os
 from pathlib import Path
+import shlex
 import sqlite3
 import sys
 import traceback
@@ -2279,15 +2280,27 @@ def _dispatch_parsed_args(ns: argparse.Namespace, state: CLIState) -> int:
     raise CLIValidationError(f"Unknown command: {cmd}", exit_code=ExitCode.INVALID_ARGS)
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    """Main CLI entry point using `argparse` and centralized error handling.
+def tokenize_command(command_line: str) -> list[str]:
+    """Safely tokenize command line input, preserving Windows backslashes and quoted paths."""
+    try:
+        tokens = shlex.split(command_line, posix=False)
+    except ValueError:
+        tokens = command_line.split()
 
-    Args:
-        argv: Optional list of command-line arguments (defaults to `sys.argv[1:]`).
+    cleaned: list[str] = []
+    for token in tokens:
+        if len(token) >= 2 and (
+            (token.startswith('"') and token.endswith('"'))
+            or (token.startswith("'") and token.endswith("'"))
+        ):
+            cleaned.append(token[1:-1])
+        else:
+            cleaned.append(token)
+    return cleaned
 
-    Returns:
-        int: Standardized exit status code (`ExitCode`).
-    """
+
+def execute_command(argv: Sequence[str] | None = None) -> int:
+    """Execute a single TraceLens CLI command through the standard argparse pipeline."""
     args_list = list(sys.argv[1:] if argv is None else argv)
     parser = build_parser()
 
@@ -2358,6 +2371,115 @@ def main(argv: Sequence[str] | None = None) -> int:
     finally:
         if verbose:
             remove_log_listener(_verbose_console_listener)
+
+
+# Alias for backward compatibility
+run_command = execute_command
+
+KNOWN_CLI_COMMANDS = {
+    "extract",
+    "batch",
+    "analyze",
+    "sanitize",
+    "edit",
+    "report",
+    "export",
+    "search",
+    "history",
+    "analytics",
+    "config",
+    "logs",
+    "help",
+}
+
+
+def interactive_shell() -> int:
+    """Run the persistent interactive TraceLens command-line shell (REPL)."""
+    state = _get_state()
+    _emit_header(state)
+    console.print(
+        summary_panel(
+            "Quick Start",
+            [
+                "tracelens help                # View complete CLI workflow & command guide",
+                "tracelens extract file.pdf    # Ingest metadata into database",
+                "tracelens analyze file.pdf    # Assess privacy risks & scores",
+                "tracelens search confidential # Search stored metadata records",
+                "tracelens report 12           # Generate TXT and PDF audit reports",
+                "tracelens batch ./samples     # Batch process all files in a folder",
+                "tracelens sanitize file.pdf   # Remove sensitive metadata tags",
+                "tracelens history             # Browse past extractions",
+                "tracelens analytics           # View dashboard intelligence",
+            ],
+            style="bright_cyan",
+        )
+    )
+    print("Interactive CLI")
+    print("Type 'help' for available commands or 'exit' to quit.\n")
+
+    while True:
+        try:
+            line = input("tracelens> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\nGoodbye!")
+            return EXIT_SUCCESS
+
+        if not line:
+            continue
+
+        tokens = tokenize_command(line)
+        if not tokens:
+            continue
+
+        # Strip optional leading 'tracelens' or 'tracelens-cli' invocation prefix
+        if tokens[0].lower() in ("tracelens", "tracelens.exe", "tracelens-cli", "tracelens-cli.exe"):
+            tokens = tokens[1:]
+            if not tokens:
+                continue
+
+        first_token = tokens[0].lower()
+        if first_token in ("exit", "quit", "exit()", "quit()", ":q"):
+            print("Goodbye!")
+            return EXIT_SUCCESS
+
+        if first_token in ("version", "--version", "-v", "-version", "-V") and len(tokens) == 1:
+            print(f"TraceLens {APP_VERSION}")
+            continue
+
+        if first_token not in KNOWN_CLI_COMMANDS and not first_token.startswith("-"):
+            print_error(
+                f"Unknown command: {tokens[0]}",
+                hint="Type 'help' to see available commands or 'exit' to quit.",
+            )
+            continue
+
+        try:
+            execute_command(tokens)
+        except Exception as exc:
+            logger.exception("Unexpected error executing interactive command '%s': %s", line, exc)
+            print_error(f"Command execution error: {exc}", hint="Type 'help' for command syntax.")
+
+    return EXIT_SUCCESS
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Main CLI entry point using `argparse` and centralized error handling.
+
+    When invoked with arguments (e.g. from CMD/PowerShell or scripts), it executes
+    the command as a one-shot CLI operation and returns the exit status.
+    When invoked without arguments (e.g. double-clicked from Windows Explorer),
+    it launches the persistent interactive REPL shell.
+
+    Args:
+        argv: Optional list of command-line arguments (defaults to `sys.argv[1:]`).
+
+    Returns:
+        int: Standardized exit status code (`ExitCode`).
+    """
+    args_list = list(sys.argv[1:] if argv is None else argv)
+    if not args_list:
+        return interactive_shell()
+    return execute_command(args_list)
 
 
 # ==============================================================================

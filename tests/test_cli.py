@@ -600,6 +600,39 @@ def test_cli_no_args_suggests_help():
     assert "tracelens help" in res.output
 
 
+def test_tokenize_command_windows_paths():
+    """Test command tokenization preserves Windows paths and quotes properly."""
+    assert cli.tokenize_command(r'extract "C:\My Documents\file.pdf"') == ["extract", r"C:\My Documents\file.pdf"]
+    assert cli.tokenize_command(r'analyze "C:\test.jpg" --threshold 50') == ["analyze", r"C:\test.jpg", "--threshold", "50"]
+    assert cli.tokenize_command("logs -n 25") == ["logs", "-n", "25"]
+    assert cli.tokenize_command("") == []
+
+
+def test_cli_interactive_repl_session(monkeypatch, capsys):
+    """Test interactive shell handles multiple commands, errors, empty lines, and exits cleanly."""
+    import io
+
+    # Simulate sequential user commands in interactive shell
+    simulated_input = io.StringIO(
+        "\n"  # empty input
+        "version\n"
+        "--version\n"
+        "abcxyz\n"  # invalid command
+        "help\n"
+        "exit\n"
+    )
+    monkeypatch.setattr("sys.stdin", simulated_input)
+
+    code = cli.interactive_shell()
+    assert code == cli.EXIT_SUCCESS
+
+    captured = capsys.readouterr().out
+    assert "Interactive CLI" in captured
+    assert "TraceLens" in captured
+    assert "Unknown command: abcxyz" in captured
+    assert "Goodbye!" in captured
+
+
 # ==============================================================================
 # CLI/UX Hardening Pass Tests (Argparse, Validation, Error Handling, Batch, Verbose)
 # ==============================================================================
