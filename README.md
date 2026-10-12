@@ -1,19 +1,19 @@
 <div align="center">
 
-# TraceLens: Intelligent Metadata Analysis & Privacy Inspection Toolkit
+# TraceLens: Metadata Analysis & Privacy Inspection Toolkit
 
 [![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)](https://github.com/Tanmay-Bhatnagar22/TraceLens)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)](https://github.com/Tanmay-Bhatnagar22/TraceLens)
-[![Tests](https://img.shields.io/badge/tests-pytest-informational.svg)](tests/)
+[![Tests](https://img.shields.io/badge/tests-225%20passed-brightgreen.svg)](tests/)
 [![GUI](https://img.shields.io/badge/GUI-Tkinter-ff69b4.svg)](src/gui/)
-[![CLI](https://img.shields.io/badge/CLI-Typer%20%2B%20Rich-orange.svg)](src/cli/)
+[![CLI](https://img.shields.io/badge/CLI-Argparse%20%2B%20Rich-orange.svg)](src/cli/)
 [![Database](https://img.shields.io/badge/database-SQLite-003b57.svg)](src/core/database/)
 
 </div>
 
-**TraceLens** is an advanced, enterprise-grade desktop and command-line application engineered for extracting, analyzing, editing, persisting, and reporting digital file metadata. Designed with a heavy emphasis on digital forensics, data governance, and privacy risk assessment, TraceLens provides investigators, compliance auditors, security researchers, and privacy-conscious users with deep visibility into hidden artifact structures across 50+ file formats.
+**TraceLens** is an open-source desktop and command-line application engineered for extracting, inspecting, editing, persisting, and reporting digital file metadata. Built with Python, Tkinter, and an Argparse/Rich CLI, TraceLens provides rule-based privacy risk scoring, chronological event timelines, selective metadata write-back, local SQLite history storage, and multi-format report exports (PDF, JSON, XML, CSV, Excel).
 
 ---
 
@@ -46,22 +46,22 @@
 
 ## Overview
 
-Modern digital files retain vast amounts of invisible metadata—ranging from precise GPS coordinates, device serial numbers, camera lens configurations, and user identifiers to detailed revision chains, internal network paths, and embedded thumbnails. Left uninspected, this metadata exposes severe privacy vulnerabilities, security leaks, and data governance risks.
+Digital files often retain hidden metadata—such as GPS coordinates, camera configurations, creator names, software processing tags, and filesystem timestamps. When shared publicly without inspection, this metadata can expose private personal details, organizational infrastructure, and sensitive handling history.
 
-TraceLens v2.0 delivers an end-to-end suite for forensic metadata management:
-- **Extract**: Inspect and parse deep metadata trees across documents, images, audio, video, archives, and code files.
-- **Analyze**: Evaluate privacy exposure and forensic anomalies with a configurable, YAML-driven risk engine.
-- **Edit & Sanitize**: Modify, sanitize, or write back metadata directly into supported file containers.
-- **Persist**: Automatically index extractions into an ACID-compliant SQLite database with fast full-text filtering.
-- **Visualize**: Explore trends, risk distributions, and file metrics with interactive analytical dashboards.
-- **Report**: Export publication-grade forensic dossiers in PDF, JSON, XML, CSV, Excel, and structured text formats.
-- **Dual Interface**: Operate seamlessly via a responsive Tkinter GUI or a feature-complete Typer/Rich command-line suite.
+TraceLens v2.0 provides an integrated metadata inspection and reporting toolkit:
+- **Extract**: Parse metadata properties across documents, images, audio, video, archives, databases, structured data, and code files.
+- **Analyze**: Evaluate privacy exposure indicators and chronological anomalies using a configurable, YAML-driven risk engine.
+- **Edit & Sanitize**: Update supported fields in-place (PDF, PNG, DOCX, audio tags, text files), embed metadata in JPEG/TIFF UserComment tags, or create companion `.meta.json` sidecar files.
+- **Persist**: Store extraction records in a local SQLite database (`file_metadata.db`) with keyword, date, and format filtering.
+- **Visualize**: Review summary statistics, file types, and risk distribution graphs with embedded Matplotlib dashboards.
+- **Report**: Export structured reports in PDF, JSON, XML, CSV, Excel, and plain-text formats.
+- **Dual Interface**: Operate via a tabbed Tkinter desktop GUI or a headless Argparse/Rich command-line suite.
 
 ---
 
 ## What is New in Version 2.0
 
-Version 2.0 represents a major architectural evolution of TraceLens, transforming it from a utility script into a modular, production-ready forensic platform.
+Version 2.0 represents a major architectural evolution of TraceLens, transforming it into a modular, service-driven metadata toolkit.
 
 ### 1. Unified Service Layer & Dependency Injection
 - Introduced `ServiceContainer` as an application facade managing discrete lifecycle services: `ExtractionService`, `RiskAnalysisService`, `MetadataEditorService`, `HistoryService`, `ReportService`, and `AnalyticsService`.
@@ -70,15 +70,16 @@ Version 2.0 represents a major architectural evolution of TraceLens, transformin
 ### 2. Configurable YAML-Based Risk & Forensic Rules Engine
 - Replaced hardcoded heuristic checks with a decoupled rules engine (`rules.yaml`) loaded and validated through `yaml_parser.py` and `rule_models.py`.
 - Granular scoring rules covering geolocation, personal identity, hardware fingerprints, software processing traces, hidden metadata containers, network paths, and digital signatures.
-- Forensic anomaly detection algorithms:
-  - **Timestamp Inversion Detection**: Flags chronological impossibilities (e.g., file modification preceding creation).
-  - **Multiple Editing Chain Detection**: Detects distinct software signatures indicating tampering or multi-party revisions.
-  - **Stacked Container Detection**: Identifies coexisting and potentially conflicting metadata blocks (XMP, IPTC, EXIF, MakerNotes).
+- Forensic anomaly detection heuristics:
+  - **Timestamp Inversion Detection**: Flags chronological discrepancies where file modification precedes creation or capture.
+  - **Multiple Editing Chain Detection**: Identifies distinct software signatures in metadata indicating multiple revision passes.
+  - **Stacked Metadata Block Detection**: Identifies coexisting metadata container tags (such as EXIF, IPTC, XMP, MakerNotes indicators).
 - Context-specific remediation recommendations for every triggered rule.
 
 ### 3. Production CLI Overhaul (Argparse + Rich)
-- Modernized, lightweight command-line subsystem with dedicated subcommands (`extract`, `batch`, `analyze`, `sanitize`, `edit`, `report`, `export`, `search`, `history`, `analytics`, `config`, `logs`, `help`).
-- Decoupled from Tkinter/GUI dependencies so the CLI executable runs cleanly in headless environments (`TraceLens CLI` vs `TraceLens GUI`).
+- Modernized, lightweight command-line subsystem powered by Python's standard library `argparse` with dedicated subcommands (`extract`, `batch`, `analyze`, `sanitize`, `edit`, `report`, `export`, `search`, `history`, `analytics`, `config`, `logs`, `help`).
+- Rich terminal output featuring styled status tables, summary panels, and progress displays, plus a Typer compatibility adapter for automated testing.
+- Decoupled from Tkinter/GUI dependencies so the CLI runs cleanly in headless and non-graphical environments.
 - Unified canonical help system (`tracelens help` and `tracelens --help`) alongside command-specific `argparse` help (`tracelens <command> --help`).
 
 ### 4. Modular Tabbed GUI Architecture
@@ -90,17 +91,17 @@ Version 2.0 represents a major architectural evolution of TraceLens, transformin
 - Integrated `logging_config.py` providing log rotation, thread-safe memory buffers for runtime diagnostics, configurable log levels via environment variables, and live GUI log viewer integration.
 
 ### 6. Expanded Format Parsing & Write-Back
-- Deep integration of Hachoir alongside specialized engines (`PyPDF2`, `piexif`, `mutagen`, `python-docx`, `openpyxl`, `pdf2image`).
-- Extended write-back support with safety backups and automatic companion `.meta.json` fallbacks for legacy/unsupported binary containers.
+- Integration of Hachoir alongside specialized engines (`PyPDF2`, `piexif`, `mutagen`, `python-docx`, `openpyxl`, `pdf2image`).
+- Selective write-back support with safety backups (`.bak` / `.backup`) and automatic companion `.meta.json` fallbacks for unsupported binary containers.
 
 ---
 
 ## Key Features
 
 ### Multi-Format Metadata Extraction
-- Automated file format identification and parser dispatching.
+- Automated file format identification and parser dispatching across documents, media, archives, structured data, and code.
 - Extracts document properties, EXIF tags, GPS geo-tags, audio ID3/Vorbis tags, video stream metadata, archive tables, and source code statistics.
-- Graceful fallbacks for unknown formats via universal binary stream parsing.
+- Graceful fallbacks for unhandled formats via universal binary stream parsing.
 
 ### Forensic Risk & Privacy Scoring
 - 0 to 100 normalized risk score mapped into defined threat levels: LOW (0-29), MEDIUM (30-64), HIGH (65-100).
@@ -109,16 +110,16 @@ Version 2.0 represents a major architectural evolution of TraceLens, transformin
 
 ### Field-Level Editing & Sanitization
 - Interactive editing interface with strict preservation of immutable file system properties (`File Name`, `File Size`, `File Type`, `Extracted At`, `Modified On`).
-- In-place binary write-back for PDFs, JPEG/TIFF EXIF, PNG text chunks, MP3/FLAC/OGG/M4A tags, and Word/Excel documents.
-- Automatic creation of `.bak` safety copies before performing destructive file modifications.
+- In-place metadata write-back for PDFs (PyPDF2), PNG text chunks (Pillow), Word documents (python-docx), and audio tags (mutagen). For JPEG/TIFF, metadata is serialized into the EXIF `UserComment` tag (piexif), while text files receive comment/header blocks (Excel `.xlsx` and PowerPoint `.pptx` write-back is not supported).
+- Automatic creation of safety copies (`.bak`) before performing destructive file modifications.
 
 ### SQLite History & Data Persistence
 - Persistent local SQLite database (`file_metadata.db`) tracking extraction timestamps, formatted sizes, file paths, and raw JSON payloads.
-- Multi-parameter search queries filtering by keyword, date ranges, risk thresholds, and file extensions.
+- Search queries filtering by keyword (matching file name and path), date ranges, and file extensions. Risk scores are evaluated dynamically by the risk engine.
 - Database maintenance utilities including SQLite `VACUUM` optimization and batch purging.
 
 ### Multi-Format Reporting & Export
-- Professional PDF reports rendered via ReportLab with headers, metadata key-value tables, risk summaries, timelines, and page numbering.
+- Formatted PDF reports rendered via ReportLab with headers, metadata key-value tables, risk summaries, timelines, and page numbering.
 - Structured data export to JSON, XML, CSV, and Excel workbooks.
 - Integrated document preview module leveraging `pdf2image` and Poppler.
 
@@ -185,8 +186,8 @@ Examine aggregate metrics, risk distribution charts, file format breakdowns, fil
 
 ### Command-Line Interface (CLI)
 
-#### 1. CLI Quick Start & Canonical  (`tracelens`, `tracelens help`, `tracelens --help`)
-Displays the startup branding, Quick Start panel, Help Guideend-to-end 5-stage forensic workflow pipeline, Command Reference table, and Common Operational Workflows.
+#### 1. CLI Quick Start & Canonical Help Guide (`tracelens`, `tracelens help`, `tracelens --help`)
+Displays the startup branding, Quick Start panel, 5-stage workflow pipeline, Command Reference table, and Common Operational Workflows.
 
 ##### Quick Start
 ![CLI Quick Start](Screenshots/cli_quick_start.png)
@@ -205,12 +206,12 @@ Scans a directory with per-file progress (`Processing 1/N`), isolates individual
 ![CLI Batch Processing](Screenshots/cli_batch.png)
 
 #### 4. Privacy & Forensic Risk Analysis (`tracelens analyze`)
-Evaluates file metadata against the YAML rules engine, displaying the risk score (`0–100`), risk level, matched rules, forensic timeline events, and remediation suggestions.
+Evaluates file metadata against the YAML rules engine, displaying the risk score (`0–100`), risk level, matched rules, chronological timeline events, and remediation suggestions.
 
 ![CLI Risk Analysis](Screenshots/cli_analyze.png)
 
 #### 5. Metadata Sanitization & Field Editing (`tracelens sanitize`, `tracelens edit`)
-Strips identifying EXIF/GPS/author tags with `.bak` backup protection (`sanitize`) or surgically updates specific metadata fields via `--set KEY=VALUE` or `--metadata-file` (`edit`).
+Clears metadata on supported files with `.bak` backup protection (`sanitize`) or updates specific metadata fields via `--set KEY=VALUE` or `--metadata-file` (`edit`).
 
 ##### CLI Sanitize
 ![CLI Sanitize](Screenshots/cli_sanitize.png)
@@ -218,8 +219,8 @@ Strips identifying EXIF/GPS/author tags with `.bak` backup protection (`sanitize
 ##### CLI Edit
 ![CLI Edit](Screenshots/cli_edit.png)
 
-#### 6. Forensic Report Generation & Dataset Export (`tracelens report`, `tracelens export`)
-Generates structured `.txt` and publication-ready `.pdf` forensic reports from a database Record ID or file path (`report`), and exports filtered history records to JSON, CSV, XML, Excel, or PDF (`export`).
+#### 6. Report Generation & Dataset Export (`tracelens report`, `tracelens export`)
+Generates structured `.txt` and formatted `.pdf` reports from a database Record ID or file path (`report`), and exports filtered history records to JSON, CSV, XML, Excel, or PDF (`export`).
 
 ![CLI Report Generation](Screenshots/cli_report.png)
 
@@ -245,7 +246,7 @@ TraceLens follows a strict layered architecture pattern, isolating presentation 
 +-----------------------------------------------------------------------------+
 |                            PRESENTATION LAYER                               |
 |   +---------------------------------------+   +-------------------------+   |
-|   |         Tkinter GUI Subsystem         |   |    Typer / Rich CLI     |   |
+|   |         Tkinter GUI Subsystem         |   |   Argparse / Rich CLI   |   |
 |   |  - ExtractorTab     - EditorTab       |   |  - extract   - analyze  |   |
 |   |  - RiskTab          - PreviewTab      |   |  - edit      - report   |   |
 |   |  - HistoryTab       - BatchDialog     |   |  - history   - export   |   |
@@ -297,7 +298,7 @@ TraceLens/
 |   |-- main.py                     # Main GUI desktop entry point
 |   |-- cli/                        # Command-line interface subsystem
 |   |   |-- __init__.py
-|   |   |-- cli.py                  # Typer commands, arguments, and handlers
+|   |   |-- cli.py                  # Argparse commands, arguments, and handlers
 |   |   |-- output.py               # Rich tables, panels, and spinners
 |   |   `-- validation.py           # Path verification and input validation
 |   |-- config/                     # Configuration and diagnostics
@@ -392,25 +393,26 @@ TraceLens/
 
 | Category | Formats | Extracted Fields & Metadata Properties |
 |---|---|---|
-| **Documents** | PDF (`.pdf`), DOCX (`.docx`), XLSX (`.xlsx`), PPTX (`.pptx`), ODT (`.odt`), ODS (`.ods`), ODP (`.odp`), Pages, Numbers, Keynote | Title, Author, Subject, Creator, Producer, Keywords, Page/Sheet count, Creation/Modification timestamps, Revision count, Last modified by |
-| **Images** | JPEG (`.jpg`, `.jpeg`), PNG (`.png`), TIFF (`.tiff`, `.tif`), GIF (`.gif`), BMP (`.bmp`), WebP (`.webp`), SVG (`.svg`), PSD (`.psd`), ICO (`.ico`) | Camera make/model, Lens info, Exposure parameters, GPS coordinates, Altitude, EXIF tags, IPTC data, XMP blocks, ICC profiles, Dimensions, Color space |
-| **Audio** | MP3 (`.mp3`), FLAC (`.flac`), M4A/AAC (`.m4a`, `.aac`), OGG (`.ogg`, `.ogv`), WAV (`.wav`), WMA (`.wma`), OPUS (`.opus`) | Title, Artist, Album, Track number, Release year, Genre, Bitrate, Sample rate, Duration, Codec, Audio channel configuration |
-| **Video** | MP4 (`.mp4`), MOV (`.mov`), AVI (`.avi`), MKV (`.mkv`), FLV (`.flv`), WebM (`.webm`), MTS/M2TS (`.mts`, `.m2ts`) | Container tags, Video stream codecs, Dimensions, Frame rate, Duration, Audio tracks, Chapter metadata, Creation timestamp |
-| **Archives** | ZIP (`.zip`), RAR (`.rar`), 7z (`.7z`), TAR (`.tar`), GZIP (`.gz`, `.gzip`) | Member file count, Uncompressed/Compressed sizes, Compression algorithms, Creation timestamps, Archive comments |
-| **Code & Text** | TXT, PY, JS, JAVA, C, CPP, H, JSON, XML, YAML, CSV, MD, HTML, CSS, TEX | Character count, Line count, Encoding, Docstrings, Structure definitions, Header comments, Configuration parameters |
-| **Binary & Misc** | EXE, DLL, ELF, ISO, MIDI, DV, WMV and 50+ formats via Hachoir | Header signatures, Stream architecture, MIME types, Section tables, Compiler signatures |
+| **Documents** | PDF (`.pdf`), DOCX (`.docx`), XLSX (`.xlsx`), PPTX (`.pptx`), ODT (`.odt`), ODS (`.ods`), ODP (`.odp`) | Title, Author, Subject, Creator, Producer, Keywords, Page/Sheet count, Creation/Modification timestamps, Revision count, Last modified by |
+| **Images** | JPEG (`.jpg`, `.jpeg`), PNG (`.png`), TIFF (`.tiff`, `.tif`), GIF (`.gif`), BMP (`.bmp`), WebP (`.webp`), SVG (`.svg`), ICO (`.ico`) | Camera make/model, Lens info, Exposure parameters, GPS coordinates, Altitude, standard EXIF tags, dimensions, mode/color depth, aspect ratio, DPI, PNG text chunks, SVG attributes |
+| **Audio** | MP3 (`.mp3`), FLAC (`.flac`), M4A/AAC (`.m4a`, `.aac`), OGG (`.ogg`), WAV (`.wav`), OPUS (`.opus`), WMA (`.wma`) | Title, Artist, Album, Track number, Release year, Genre, Bitrate, Sample rate, Duration, Codec, Audio channel configuration |
+| **Video** | MP4 (`.mp4`), MOV (`.mov`), AVI (`.avi`), MKV (`.mkv`), FLV (`.flv`), WebM (`.webm`), M4V (`.m4v`) | Container tags, duration, bitrate, and stream metadata via Mutagen (MP4/MOV) and Hachoir fallback |
+| **Archives** | ZIP (`.zip`), TAR (`.tar`, `.tar.gz`, `.tar.bz2`, `.tar.xz`, `.tgz`) | Member file count, Directory count, Uncompressed/Compressed sizes, Compression ratio, Sample files. Note: other archive formats (`.7z`, `.rar`) use generic binary stream fallback. |
+| **Databases** | SQLite (`.db`, `.sqlite`, `.sqlite3`, `.db3`) | Database page size, encoding, schema table names, view counts, and index metadata |
+| **Code & Text** | TXT, PY, JS, JAVA, C, CPP, H, JSON, XML, YAML, CSV, MD, HTML, CSS, SQL, INI | Character count, Line count, Encoding, Frontmatter, Configuration parameters |
+| **Binary & Misc** | EXE, DLL, ELF, ISO, MIDI, and additional binary formats via Hachoir | Header signatures, Stream architecture, MIME types, Section tables, Compiler signatures |
 
 ### Write-Back Support Matrix
 
 | Format / Target | Modification Mechanism | Supported Operations |
 |---|---|---|
 | **PDF** (`.pdf`) | PyPDF2 Document Property Stream | Update Author, Title, Subject, Keywords, Creator, Producer |
-| **JPEG / TIFF** (`.jpg`, `.tiff`) | `piexif` EXIF Serialization | Update/Strip EXIF tags, GPS geo-tags, Device information |
-| **PNG** (`.png`) | Pillow / PNG Text Chunk Modification | Inject/Update textual metadata blocks (`tEXt`/`zTXt`) |
-| **Audio** (`.mp3`, `.flac`, `.m4a`, `.ogg`) | `mutagen` Tag Stream Modification | Modify ID3v2, Vorbis comments, MP4 atoms |
-| **Office Documents** (`.docx`, `.xlsx`) | `python-docx` / `openpyxl` Core Properties | Update Core document properties and workbook author metadata |
-| **Text Documents** (`.txt`, `.md`, `.py`) | Header Injection (JSON/YAML Front Matter) | Prepend structured metadata blocks |
-| **Other / Unsupported Binary** | Companion Sidecar (`.meta.json`) | External metadata persistence preserving original file hash |
+| **JPEG / TIFF** (`.jpg`, `.tiff`) | `piexif` EXIF Serialization | Serializes updated metadata dictionary into the EXIF `UserComment` tag |
+| **PNG** (`.png`) | Pillow PNG Text Chunk Modification | Injects/updates textual key-value metadata chunks (`tEXt`) |
+| **Audio** (`.mp3`, `.flac`, `.m4a`, `.ogg`) | `mutagen` Tag Stream Modification | Sets standard tags (Title, Artist, Album) and serializes metadata into comments/tags |
+| **Office Documents** (`.docx`) | `python-docx` Core Properties | Updates Core properties (Title, Author, Subject, Keywords, Comments). *Note: write-back is not supported for `.xlsx` or `.pptx`.* |
+| **Text Documents** (`.txt`, `.md`, `.py`, `.yaml`, `.xml`, `.json`) | Header / Comment Injection | Adds metadata comment headers or injects a `_metadata` key (JSON) |
+| **Other / Unsupported Binary** | Companion Sidecar (`.meta.json`) | Writes updated metadata to an adjacent JSON sidecar preserving original binary intact |
 
 ---
 
@@ -421,31 +423,32 @@ TraceLens/
 - **Tkinter**: Native, cross-platform graphical user interface toolkit.
 
 ### Metadata Extraction & Manipulation
-- **PyPDF2 (>=3.0.0)**: PDF document parsing and structural stream modification.
-- **Hachoir (>=3.2.0)**: Low-level binary stream parser for 50+ binary and media formats.
-- **piexif (>=1.1.3)**: EXIF byte serialization and manipulation for JPEG/TIFF assets.
-- **mutagen (>=1.47.0)**: Comprehensive audio tag reader and writer.
-- **python-docx (>=1.1.0)**: OpenXML Word document inspection and property mutation.
-- **openpyxl (>=3.1.0)**: OpenXML Excel workbook structure and property handling.
+- **PyPDF2 (>=3.0.0)**: PDF document parsing and structural property modification.
+- **Hachoir (>=3.2.0)**: Low-level binary stream parser for media and executable container inspection.
+- **piexif (>=1.1.3)**: EXIF byte serialization and UserComment handling for JPEG/TIFF assets.
+- **mutagen (>=1.47.0)**: Audio tag parsing and writing (MP3, FLAC, M4A, OGG).
+- **python-docx (>=1.1.0)**: OpenXML Word document inspection and core property mutation.
+- **openpyxl (>=3.1.0)**: OpenXML Excel workbook structure inspection and report export handling.
 - **pdf2image (>=1.16.0)**: Document rendering and image conversion for report previewing.
 
 ### Analytics, Data Processing & Visuals
 - **pandas (>=2.0.0)**: Tabular data structures, history filtering, and analytical export transformations.
-- **Pillow (>=10.0.0)**: Image manipulation, thumbnail generation, and dimension extraction.
+- **Pillow (>=10.0.0)**: Image manipulation, dimension extraction, and PNG chunk handling.
 - **matplotlib (>=3.7.0)**: Chart generation and visualization widgets for the statistics dashboard.
 
 ### Command-Line & Terminal UI
-- **typer (>=0.12.3)**: Type-driven command line interface engine.
-- **rich (>=13.7.0)**: Terminal formatting, status spinners, animated progress bars, and styled tables.
-- **click (>=8.1.0)**: Base CLI argument parsing engine.
+- **argparse**: Standard library argument parsing engine powering all CLI commands and subcommands.
+- **rich (>=13.7.0)**: Terminal formatting, status spinners, progress displays, and styled tables.
+- **typer (>=0.12.3) / click (>=8.1.0)**: Compatibility bridge facilitating automated test runner invocation.
 - **pyyaml (>=6.0.0)**: Rule definitions loading and configuration validation.
 
 ### Reporting & Persistence
-- **ReportLab (>=4.0.0)**: Programmatic PDF dossier rendering with custom styling.
+- **ReportLab (>=4.0.0)**: Programmatic PDF report rendering with custom layout tables and styles.
 - **SQLite3**: ACID-compliant local database engine with zero external daemon requirements.
 
 ### Quality Assurance
-- **pytest (>=8.3.0)**: Automated test execution framework with parameterized fixtures and mocks.
+- **pytest (>=8.3.0)**: Automated test execution framework (225 passing unit and integration tests).
+- **pytest-cov (optional)**: Coverage reporting plugin (required when running `pytest --cov`).
 
 ---
 
@@ -747,9 +750,9 @@ if result["success"]:
     risk_data = result["risk"]
     
     print(f"File Name: {extraction_data.file_name}")
-    print(f"Risk Score: {risk_data['risk_score']}/100 ({risk_data['risk_level']})")
-    print("Triggered Rules:", risk_data.get("reasons", []))
-    print("Timeline Events:", len(risk_data.get("timeline", [])))
+    print(f"Risk Score: {risk_data.risk_score}/100 ({risk_data.risk_level})")
+    print("Triggered Rules:", risk_data.reasons)
+    print("Timeline Events:", len(risk_data.timeline))
 ```
 
 ### Direct Module Usage
@@ -767,16 +770,19 @@ metadata = extractor.extract("sample_photo.jpg")
 analysis = risk_analyzer.analyze_metadata(metadata, "sample_photo.jpg")
 print(f"Risk Level: {analysis['risk_level']}, Score: {analysis['risk_score']}")
 
-# 3. Generate structured PDF dossier
-pdf_path = report.generate_pdf_report(
-    metadata=metadata,
-    output_path="audit_dossier.pdf",
-    include_risk=True,
-    risk_analysis=analysis
+# 3. Generate formatted reports
+report_text = report.generate_report_text(
+    extracted_metadata=metadata,
+    file_path="sample_photo.jpg",
+    risk_analysis=analysis,
+)
+report.create_pdf_report_from_text(
+    metadata_text=report_text,
+    file_path="audit_report.pdf",
 )
 
 # 4. Query SQLite persistence
-recent_records = db.db_manager.get_all_metadata(limit=10)
+recent_records = db.db_manager.get_recent_records(limit=10)
 ```
 
 ---
@@ -788,7 +794,7 @@ The TraceLens risk engine computes an aggregate threat score on a scale from 0 t
 ### Threat Level Thresholds
 - **LOW (0 - 29)**: Minimal exposure; standard operational metadata.
 - **MEDIUM (30 - 64)**: Moderate exposure; contains identifiable creator tags, software versions, or internal network references.
-- **HIGH (65 - 100)**: Severe privacy exposure; contains precise GPS geolocation, unique hardware identifiers, or critical forensic timeline anomalies.
+- **HIGH (65 - 100)**: Severe privacy exposure; contains precise GPS geolocation, unique hardware identifiers, or critical timeline anomalies.
 
 ### Rule Categories
 
@@ -804,18 +810,23 @@ The TraceLens risk engine computes an aggregate threat score on a scale from 0 t
 
 ### Forensic Anomaly Detection
 
-1. **Timestamp Inversion Penalty (+20 pts)**:
-   Triggers when a file modification or last-save timestamp chronologically precedes its creation or capture timestamp, suggesting metadata tampering or clock alterations.
-2. **Multiple Editing Chains Penalty (+15 pts)**:
-   Triggers when metadata reveals two or more distinct editing suites (e.g., Photoshop followed by GIMP), indicating multi-stage document alteration.
-3. **Stacked Metadata Blocks Penalty (+15 pts)**:
-   Triggers when three or more distinct metadata container standards (EXIF, IPTC, XMP, MakerNotes) are co-embedded within the same file.
+TraceLens inspects chronological events and software attributes to flag potential file anomalies:
+
+1. **Timestamp Inversion**:
+   Triggers when a file modification or last-save timestamp chronologically precedes its creation or capture timestamp, highlighting timestamp discrepancies or out-of-order edits.
+2. **Multiple Editing Chains**:
+   Triggers when software metadata references two or more distinct editing applications or tools (`min_distinct: 2` in `rules.yaml`), indicating multiple revision cycles.
+3. **Stacked Metadata Blocks**:
+   Triggers when three or more distinct metadata container keywords (e.g., EXIF, IPTC, XMP, MakerNotes) are detected within extracted keys (`min_count: 3` in `rules.yaml`).
+
+**Scoring Penalty**:
+When one or more anomalies are detected, the engine applies a configurable flat anomaly penalty (`scoring.anomaly_penalty`, default: 20 points in `rules.yaml`) to the total score, capped at `max_score` (100).
 
 ---
 
 ## Database Schema & Persistence
 
-TraceLens stores extraction history in a local SQLite database (`file_metadata.db`).
+TraceLens stores extraction history in a local SQLite database (`file_metadata.db`). The default database location is user-writable (under `AppData/Local/TraceLens` on Windows or `.local/share/TraceLens` on Linux/macOS), and can be customized via the `--db-path` CLI flag or `TRACELENS_DB_PATH` environment variable.
 
 ### Schema Definition
 
@@ -830,15 +841,11 @@ CREATE TABLE IF NOT EXISTS metadata (
     modified_on TEXT,
     full_metadata TEXT NOT NULL
 );
-
-CREATE INDEX IF NOT EXISTS idx_metadata_file_path ON metadata(file_path);
-CREATE INDEX IF NOT EXISTS idx_metadata_file_type ON metadata(file_type);
-CREATE INDEX IF NOT EXISTS idx_metadata_extracted_at ON metadata(extracted_at);
 ```
 
 ### Field Specifications
 - `id`: Auto-incrementing primary key.
-- `file_path`: Absolute filesystem path to the analyzed asset.
+- `file_path`: Filesystem path to the analyzed asset.
 - `file_name`: Basename of the file.
 - `file_size_formatted`: Human-readable size string (e.g., `4.2 MB`).
 - `file_type`: Normalized file extension identifier (e.g., `pdf`, `jpg`).
@@ -846,11 +853,16 @@ CREATE INDEX IF NOT EXISTS idx_metadata_extracted_at ON metadata(extracted_at);
 - `modified_on`: Filesystem last modification timestamp.
 - `full_metadata`: Serialized JSON payload containing complete key-value extraction trees.
 
+*Note: Database searches perform SQL `LIKE` filtering across `file_name` and `file_path`. Risk scores are evaluated dynamically by the risk engine and are not stored in database columns.*
+
 ---
 
 ## Future Roadmap & Version 3.0 Plan: TraceAi
 
-Version 3.0 will introduce **TraceAi**, an intelligent, context-driven AI forensic assistant and conversational copilot deeply integrated into TraceLens. TraceAi is powered by the **Google Gemini API** (`google-genai` SDK), combining large-context reasoning with multimodal understanding to revolutionize metadata analysis.
+> [!NOTE]
+> TraceLens Version 2.0 is entirely deterministic, local, and rule-based with no external AI or cloud API dependencies. The TraceAi capabilities detailed below represent architectural plans for Version 3.0 and are not part of the current v2.0 release.
+
+Version 3.0 is planned to introduce **TraceAi**, an optional context-driven AI forensic assistant and conversational copilot integrated into TraceLens. Planned integrations leverage the **Google Gemini API** (`google-genai` SDK), combining large-context reasoning with multimodal understanding to assist metadata investigations.
 
 ```text
 +-----------------------------------------------------------------------------+
@@ -910,7 +922,7 @@ Version 3.0 will introduce **TraceAi**, an intelligent, context-driven AI forens
 
 ## Testing & Quality Assurance
 
-TraceLens includes an extensive automated test suite built with **pytest**, covering unit tests, integration workflows, CLI command verification, database transactions, and GUI tab interactions.
+TraceLens includes an automated test suite of **225 tests** built with **pytest**, covering unit tests, service layer pipelines, CLI commands, database transactions, format parsers, and GUI components.
 
 ### Running the Test Suite
 
@@ -921,10 +933,8 @@ pytest
 # Run tests with verbose output
 pytest -v
 
-# Generate terminal coverage report
+# Generate coverage reports (requires pytest-cov: pip install pytest-cov)
 pytest --cov=src --cov-report=term-missing
-
-# Generate HTML coverage report
 pytest --cov=src --cov-report=html
 ```
 
@@ -934,7 +944,7 @@ pytest --cov=src --cov-report=html
 # Test the YAML risk rules engine and anomaly detector
 pytest tests/test_risk_engine.py tests/test_risk_analyzer.py -v
 
-# Test the Typer/Rich CLI interface
+# Test the CLI interface and commands
 pytest tests/test_cli.py -v
 
 # Test the SQLite database manager
@@ -985,9 +995,12 @@ pytest tests/test_gui.py tests/test_gui_tabs.py tests/test_batch_process_dialog.
 
 ## Known Limitations
 
-1. **Encrypted Documents**: Password-protected PDFs and encrypted Office files cannot be parsed without providing decryption credentials.
-2. **Proprietary Raw Images**: Certain proprietary camera RAW formats (e.g., `.cr3`, `.nef`, `.arw`) have read-only metadata extraction support; in-place binary write-back is restricted to JPEG, PNG, and TIFF formats.
-3. **Headless Report Preview**: The GUI PDF preview feature requires an active graphical display session and Poppler binaries.
+1. **Encrypted Documents**: Password-protected PDFs and encrypted Office documents cannot be parsed without valid decryption credentials.
+2. **Write-Back Format Support**: In-place binary write-back is implemented for PDFs (`.pdf`), PNG text chunks (`.png`), Word documents (`.docx`), audio tags (`.mp3`, `.flac`, `.m4a`, `.ogg`), and text comments. Other formats—including Excel spreadsheets (`.xlsx`), PowerPoint presentations (`.pptx`), and generic binaries—do not support in-place writing and persist metadata via companion `.meta.json` sidecar files.
+3. **Image EXIF Write-Back**: Writing metadata to JPEG and TIFF files serializes the metadata payload into the standard EXIF `UserComment` tag (via `piexif`) rather than rewriting individual device, camera, or lens tags in-place.
+4. **Specialized Archive Formats**: Specialized member enumeration is provided for `.zip` and `.tar` archives (`.tar.gz`, `.tar.bz2`, `.tar.xz`, `.tgz`). Other archives (`.7z`, `.rar`) fall back to universal binary stream inspection.
+5. **Database Search Scope**: SQLite search queries perform SQL `LIKE` pattern matching over `file_name` and `file_path`. Full-text indexing over raw nested JSON metadata and querying directly by risk score are not implemented in the database schema (risk scores are computed dynamically).
+6. **Headless Report Preview**: Document preview in the GUI relies on `pdf2image` and requires Poppler binaries installed on the host system PATH along with an active graphical display session.
 
 ---
 
@@ -1019,5 +1032,5 @@ This project is licensed under the **MIT License**. See the [LICENSE](LICENSE) f
 ---
 
 <div align="center">
-TraceLens: Intelligent Metadata Analysis & Privacy Inspection Toolkit | Version 2.0.0
+TraceLens: Metadata Analysis & Privacy Inspection Toolkit | Version 2.0.0
 </div>
