@@ -7,6 +7,10 @@ hachoir>=3.2.0
 pdf2image>=1.16.0
 pytest>=8.3.0
 matplotlib>=3.7.0
+rich>=13.7.0
+click>=8.1.0
+typer>=0.12.3
+pyyaml>=6.0.0
 
 # Optional Dependencies for Enhanced Metadata Writing
 
@@ -22,7 +26,7 @@ openpyxl>=3.1.0
 
 # Installation Commands:
 # Install core dependencies:
-# pip install PyPDF2 Pillow pand lab hachoir
+# pip install PyPDF2 Pillow pandas hachoir rich typer
 
 # Install all optional dependencies:
 # pip install piexif mutagen python-docx openpyxl

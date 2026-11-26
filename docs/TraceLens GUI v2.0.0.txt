@@ -1,0 +1,32 @@
+# TraceLens GUI v2.0.0 – Windows Release
+
+TraceLens GUI is now available as a standalone Windows application.
+
+This release makes it easier to use TraceLens through its graphical interface without manually setting up Python or the project's development environment.
+
+### What's Included
+
+- Standalone Windows GUI executable.
+- Windows installer powered by Inno Setup.
+- Bundled Python runtime and required dependencies.
+- TraceLens application branding and icon.
+- Start Menu shortcut.
+- Optional Desktop shortcut.
+- Standard Windows installation and uninstallation support.
+
+### Installation
+
+1. Download `TraceLens-GUI-Setup.exe` from the Assets section.
+2. Run the installer.
+3. Follow the installation instructions.
+4. Launch TraceLens GUI from the Desktop or Start Menu.
+
+### Notes
+
+- This release packages the existing TraceLens GUI.
+- The CLI edition is distributed separately.
+- User-generated reports and application data should be preserved during uninstallation.
+
+### Release Asset
+
+`TraceLens-GUI-Setup.exe`

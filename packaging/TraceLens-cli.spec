@@ -1,0 +1,152 @@
+# -*- mode: python ; coding: utf-8 -*-
+"""PyInstaller spec file for TraceLens CLI (standalone onedir build)."""
+
+import os
+from PyInstaller.utils.hooks import copy_metadata
+
+ROOT = os.path.abspath(os.path.join(SPECPATH, ".."))
+
+datas = [
+    (os.path.join(ROOT, "assets"), "assets"),
+    (os.path.join(ROOT, "assets", "Metadata.png"), "."),
+    (os.path.join(ROOT, "src", "core", "risk", "rules.yaml"), os.path.join("src", "core", "risk")),
+]
+datas += copy_metadata("tracelens")
+
+a = Analysis(
+    [os.path.join(ROOT, "src", "cli", "cli.py")],
+    pathex=[ROOT, os.path.join(ROOT, "src")],
+    binaries=[],
+    datas=datas,
+    hiddenimports=[
+        # Application entry & config
+        "src",
+        "src.cli",
+        "src.cli.cli",
+        "src.cli.output",
+        "src.cli.validation",
+        "src.config",
+        "src.config.logging_config",
+        "src.utils",
+        "src.utils.logger",
+        # Core domain & services
+        "src.core",
+        "src.core.database",
+        "src.core.database.db",
+        "src.core.editor",
+        "src.core.editor.editor",
+        "src.core.extractor",
+        "src.core.extractor.extractor",
+        "src.core.reports",
+        "src.core.reports.report",
+        "src.core.risk",
+        "src.core.risk.risk_analyzer",
+        "src.core.risk.risk_engine",
+        "src.core.risk.rule_models",
+        "src.core.risk.yaml_parser",
+        "src.core.services",
+        "src.core.services.container",
+        "src.core.services.analytics_service",
+        "src.core.services.editor_service",
+        "src.core.services.extraction_service",
+        "src.core.services.history_service",
+        "src.core.services.report_service",
+        "src.core.services.risk_service",
+        "src.models",
+        "src.models.analytics",
+        "src.models.metadata",
+        "src.models.reports",
+        "src.models.risk",
+        # CLI & terminal formatting
+        "rich",
+        "rich.console",
+        "rich.table",
+        "rich.panel",
+        "rich.box",
+        "rich.markup",
+        "rich.text",
+        "typer",
+        "click",
+        "shellingham",
+        "importlib.metadata",
+        # Metadata extraction, editing & reporting
+        "PIL",
+        "PIL.Image",
+        "PIL.ExifTags",
+        "PyPDF2",
+        "pandas",
+        "openpyxl",
+        "lxml",
+        "lxml.etree",
+        "reportlab",
+        "reportlab.lib",
+        "reportlab.lib.pagesizes",
+        "reportlab.lib.colors",
+        "reportlab.lib.styles",
+        "reportlab.lib.units",
+        "reportlab.platypus",
+        "hachoir",
+        "hachoir.parser",
+        "hachoir.metadata",
+        "yaml",
+        "piexif",
+        "mutagen",
+        "mutagen.mp3",
+        "mutagen.id3",
+        "mutagen.flac",
+        "mutagen.mp4",
+        "docx",
+    ],
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=[],
+    excludes=[
+        # GUI & dev/test packages not used by CLI
+        "tkinter",
+        "_tkinter",
+        "matplotlib",
+        "pytest",
+        "PyQt5",
+        "PyQt6",
+        "PySide2",
+        "PySide6",
+        "wx",
+        "ttkbootstrap",
+        "tkinterdnd2",
+        "windnd",
+        "IPython",
+    ],
+    noarchive=False,
+    optimize=0,
+)
+pyz = PYZ(a.pure)
+
+exe = EXE(
+    pyz,
+    a.scripts,
+    [],
+    exclude_binaries=True,
+    name="TraceLens",
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,
+    console=True,
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+    icon=os.path.join(ROOT, "assets", "Metadata.ico"),
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    name="TraceLens",
+)
+
