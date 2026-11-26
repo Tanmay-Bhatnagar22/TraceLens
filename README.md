@@ -520,7 +520,26 @@ python -c "import PyPDF2, hachoir, rich, typer, tkinter; print('TraceLens v2.0 e
 
 Starting in TraceLens v2.0, the desktop GUI and command-line interface are separated into independent entry points for dedicated GUI and CLI executables.
 
-#### Option A: Standalone Windows Executable (`TraceLens.exe`)
+#### Option A: Windows Installer (`TraceLens-GUI-Setup.exe`)
+
+For the standard Windows desktop experience with Start Menu and Desktop shortcuts (no Python or administrator privileges required):
+
+1. Download `TraceLens-GUI-Setup.exe` from the release page (or build it locally into `dist/v2/installer/TraceLens-GUI-Setup.exe`).
+2. Run `TraceLens-GUI-Setup.exe` and follow the setup wizard:
+   - Default install directory: `%LOCALAPPDATA%\Programs\TraceLens` (per-user install, no admin rights required).
+   - Optionally enable the **Create a desktop icon** task.
+3. **Launch TraceLens GUI**:
+   - Open **Start Menu -> TraceLens GUI**, double-click the **TraceLens GUI** Desktop shortcut, or check **Launch TraceLens GUI** on the installer completion screen.
+4. **Uninstall**:
+   - Use **Settings -> Apps -> Installed apps -> TraceLens GUI -> Uninstall** or **Start Menu -> TraceLens GUI -> Uninstall TraceLens GUI**.
+   - Uninstallation removes the installed application binaries, shortcuts, and installer registry entries while **preserving** your user-generated history database and logs in `%LOCALAPPDATA%\TraceLens\`.
+5. **Building the Installer Locally** (requires [Inno Setup 6](https://jrsoftware.org/isinfo.php)):
+   ```powershell
+   pyinstaller --noconfirm --clean --distpath dist/v2 --workpath build packaging/TraceLens.spec
+   & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "installer\gui\TraceLens-GUI.iss"
+   ```
+
+#### Option B: Portable Standalone Executable (`TraceLens.exe`)
 
 Windows users can run the packaged GUI directly without installing Python, a virtual environment, or project dependencies:
 
@@ -546,7 +565,7 @@ Windows users can run the packaged GUI directly without installing Python, a vir
   pyinstaller --noconfirm --clean --distpath dist/v2/cli --workpath build/cli packaging/TraceLens-cli.spec
   ```
 
-#### Option B: Launch from Source (Python)
+#### Option C: Launch from Source (Python)
 
 Launch the full-featured desktop interface via `src/main.py`:
 ```bash
@@ -571,6 +590,31 @@ TraceLens provides a lightweight, headless `argparse` command-line suite (`trace
 ```text
 tracelens [OPTIONS] COMMAND [ARGS]...
 ```
+
+#### Windows CLI Installer (`TraceLens-CLI-Setup.exe`)
+
+For system-wide terminal convenience on Windows 10/11 (64-bit) without Python or administrator privileges:
+
+1. Download `TraceLens-CLI-Setup.exe` from the release page (or build it locally into `dist/v2/installer/TraceLens-CLI-Setup.exe`).
+2. Run `TraceLens-CLI-Setup.exe` and follow the setup wizard:
+   - Default install directory: `%LOCALAPPDATA%\Programs\TraceLens-CLI` (per-user install, no admin rights required).
+   - Keep **Add TraceLens CLI to your user PATH** checked to run `TraceLens` from any directory.
+   - Optionally enable **Create a desktop icon**.
+3. **Verify Installation**: Open a **new** Command Prompt or PowerShell window (already-open terminals do not pick up `PATH` changes until restarted) and run:
+   ```powershell
+   TraceLens --version
+   TraceLens --help
+   TraceLens extract C:\path\to\file.png --details
+   TraceLens analyze C:\path\to\file.png
+   ```
+4. **Uninstall**:
+   - Use **Settings -> Apps -> Installed apps -> TraceLens CLI -> Uninstall** or **Start Menu -> TraceLens CLI -> Uninstall TraceLens CLI**.
+   - Uninstallation removes installed binaries, shortcuts, and only the `PATH` entry added by the installer, while **preserving** your user data in `%LOCALAPPDATA%\TraceLens\`.
+5. **Building the CLI Installer Locally** (requires [Inno Setup 6](https://jrsoftware.org/isinfo.php)):
+   ```powershell
+   pyinstaller --noconfirm --clean --distpath dist/v2/cli --workpath build/cli packaging/TraceLens-cli.spec
+   & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "installer\cli\TraceLens-CLI.iss"
+   ```
 
 #### Standalone Windows CLI Executable (`TraceLens.exe`)
 

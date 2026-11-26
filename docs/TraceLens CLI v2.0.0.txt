@@ -1,0 +1,44 @@
+# TraceLens CLI v2.0.0 – Windows Release
+
+TraceLens CLI is now available as a standalone Windows application.
+
+This release allows users to run TraceLens directly from Command Prompt and PowerShell without manually installing Python or configuring the development environment.
+
+### What's Included
+
+- Standalone Windows CLI executable.
+- Windows installer powered by Inno Setup.
+- Bundled Python runtime and required dependencies.
+- TraceLens application branding and icon.
+- Current-user PATH registration.
+- Start Menu shortcut.
+- Standard Windows installation and uninstallation support.
+
+### Getting Started
+
+1. Download `TraceLens-CLI-Setup.exe` from the Assets section.
+2. Run the installer.
+3. Complete the installation.
+4. Open a new Command Prompt or PowerShell window.
+
+Verify the installation:
+
+```powershell
+TraceLens --version
+```
+
+View available commands:
+
+```powershell
+TraceLens --help
+```
+
+### Notes
+
+- Open a new terminal session after installation for PATH changes to take effect.
+- This release packages the existing TraceLens CLI.
+- The GUI edition is distributed separately.
+
+### Release Asset
+
+`TraceLens-CLI-Setup.exe`
