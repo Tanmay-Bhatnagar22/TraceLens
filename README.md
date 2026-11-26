@@ -518,7 +518,37 @@ python -c "import PyPDF2, hachoir, rich, typer, tkinter; print('TraceLens v2.0 e
 
 ### Graphical User Interface (GUI)
 
-Starting in TraceLens v2.0, the desktop GUI and command-line interface are separated into independent entry points for dedicated GUI and CLI executables. Launch the full-featured desktop interface via `src/main.py`:
+Starting in TraceLens v2.0, the desktop GUI and command-line interface are separated into independent entry points for dedicated GUI and CLI executables.
+
+#### Option A: Standalone Windows Executable (`TraceLens.exe`)
+
+Windows users can run the packaged GUI directly without installing Python, a virtual environment, or project dependencies:
+
+1. Download or extract the `TraceLens` standalone folder (e.g., from a release archive or `dist/v2/TraceLens/`).
+2. Double-click `TraceLens.exe` (or run it from PowerShell/Command Prompt). It opens directly into the windowed GUI with no console window.
+
+- **Supported Environment**: Windows 10 / Windows 11 (64-bit).
+- **GUI vs. CLI Executables**:
+  - **GUI**: `dist/v2/TraceLens/TraceLens.exe` (`packaging/TraceLens.spec`) — Windowed Tkinter desktop application (`src/main.py`).
+  - **CLI**: `dist/v2/cli/TraceLens/TraceLens.exe` (`packaging/TraceLens-cli.spec`) — Console-mode headless CLI (`src/cli/cli.py`).
+- **Writable Runtime Data Locations** (kept separate from the application bundle so the app works from any directory):
+  - **SQLite History Database**: `%LOCALAPPDATA%\TraceLens\file_metadata.db` (overridable via `TRACELENS_DB_PATH`).
+  - **Application Logs**: `%LOCALAPPDATA%\TraceLens\logs\tracelens.log` (overridable via `TRACELENS_LOG_FILE` or `TRACELENS_LOG_DIR`).
+- **Runtime Limitations**:
+  - Live PDF-to-image rendering in the **Preview Tab** (`pdf2image`) still requires Poppler binaries on the system `PATH`; without Poppler, the Preview Tab falls back to text preview while PDF export (`reportlab`) continues to work normally.
+  - The *File -> Backup Database* menu action copies `"metadata.db"` from the current working directory rather than `%LOCALAPPDATA%\TraceLens\file_metadata.db`; you can back up the database directly from `%LOCALAPPDATA%\TraceLens\file_metadata.db`.
+- **Building Locally from Source**:
+  ```powershell
+  # GUI executable
+  pyinstaller --noconfirm --clean --distpath dist/v2 --workpath build packaging/TraceLens.spec
+
+  # CLI executable
+  pyinstaller --noconfirm --clean --distpath dist/v2/cli --workpath build/cli packaging/TraceLens-cli.spec
+  ```
+
+#### Option B: Launch from Source (Python)
+
+Launch the full-featured desktop interface via `src/main.py`:
 ```bash
 python src/main.py
 ```
@@ -541,6 +571,46 @@ TraceLens provides a lightweight, headless `argparse` command-line suite (`trace
 ```text
 tracelens [OPTIONS] COMMAND [ARGS]...
 ```
+
+#### Standalone Windows CLI Executable (`TraceLens.exe`)
+
+Windows users can run the packaged CLI directly from **Command Prompt** or **PowerShell** without installing Python, creating a virtual environment, or installing dependencies:
+
+1. Download or extract the standalone CLI `TraceLens` folder (from a release archive or `dist/v2/cli/TraceLens/`). Keep `TraceLens.exe` together with its `_internal/` folder.
+2. Run `TraceLens.exe` from Command Prompt or PowerShell (optionally add the folder to your `PATH`), or run it with no arguments to open the interactive `tracelens>` shell:
+
+```powershell
+# Check packaged version and access help
+.\TraceLens.exe --version
+.\TraceLens.exe --help
+.\TraceLens.exe help
+.\TraceLens.exe extract --help
+
+# Extract, analyze, and generate reports from any working directory
+.\TraceLens.exe extract C:\path\to\photo.png --details
+.\TraceLens.exe batch C:\path\to\folder
+.\TraceLens.exe analyze C:\path\to\document.pdf
+.\TraceLens.exe sanitize C:\path\to\photo.png --backup
+.\TraceLens.exe edit C:\path\to\photo.png -s "Author=Analyst"
+.\TraceLens.exe report C:\path\to\document.pdf -f both
+.\TraceLens.exe export json -o records.json
+.\TraceLens.exe search document
+.\TraceLens.exe history stats
+.\TraceLens.exe analytics
+.\TraceLens.exe config
+.\TraceLens.exe logs -n 20
+```
+
+- **Supported Environment**: Windows 10 / Windows 11 (64-bit).
+- **GUI vs. CLI Launch**: Run `dist/v2/TraceLens/TraceLens.exe` for the windowed Tkinter GUI, or `dist/v2/cli/TraceLens/TraceLens.exe` for terminal/headless CLI usage.
+- **Writable Runtime Locations**:
+  - **SQLite Database**: `%LOCALAPPDATA%\TraceLens\file_metadata.db` (overridable via `--db-path` or `TRACELENS_DB_PATH`).
+  - **Logs**: `%LOCALAPPDATA%\TraceLens\logs\tracelens.log` (overridable via `TRACELENS_LOG_DIR` or `TRACELENS_LOG_FILE`).
+  - **Reports & Exports**: Saved to your current working directory by default unless `--output-dir` (`report`) or `-o` (`export`) is specified.
+- **Runtime Limitations**:
+  - The `onedir` distribution requires `TraceLens.exe` and its sibling `_internal/` directory to remain in the same folder.
+  - In-place metadata write-back is not supported for Excel (`.xlsx`) or PowerPoint (`.pptx`) files.
+  - GUI-only PDF page image preview (`pdf2image`) is not included in the headless CLI.
 
 #### Quick Examples & Unified Help System
 ```bash

@@ -38,6 +38,17 @@ ROOT_DIR = PROJECT_ROOT
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+
+def _default_output_dir() -> Path:
+    """Return the default writable directory for CLI-generated reports and exports.
+
+    When running as a frozen PyInstaller executable, use the caller's current
+    working directory so outputs are never written into temporary/bundle folders.
+    """
+    if getattr(sys, "frozen", False):
+        return Path.cwd()
+    return PROJECT_ROOT
+
 from src import __version__
 from src.cli.output import (
     console,
@@ -807,7 +818,7 @@ def _handle_report(
     source: str,
     *,
     format_name: str = "both",
-    output_dir: str = str(PROJECT_ROOT),
+    output_dir: str | None = None,
     state: CLIState,
 ) -> int:
     services = get_services(state)
@@ -818,14 +829,18 @@ def _handle_report(
             command="report",
         )
 
-    logger.info("Report command invoked for source: %s (format=%s, output_dir=%s)", source, fmt, output_dir)
+    resolved_output_dir = output_dir if output_dir is not None else str(_default_output_dir())
+    logger.info("Report command invoked for source: %s (format=%s, output_dir=%s)", source, fmt, resolved_output_dir)
     file_path_text, metadata, record = _choose_source_metadata(source)
 
     try:
-        output_directory = Path(output_dir).expanduser()
+        output_directory = Path(resolved_output_dir).expanduser()
         output_directory.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
-        raise CLIReportError(f"Cannot create report output directory '{output_dir}': {exc}", command="report") from exc
+        raise CLIReportError(
+            f"Cannot create report output directory '{resolved_output_dir}': {exc}",
+            command="report",
+        ) from exc
 
     try:
         analysis = services.risk.analyze_metadata(metadata, file_path_text)
@@ -921,7 +936,7 @@ def _handle_export(
     if output:
         output_path = Path(output).expanduser()
     else:
-        output_path = PROJECT_ROOT / f"metadata_export_{_default_timestamp()}{default_suffix}"
+        output_path = _default_output_dir() / f"metadata_export_{_default_timestamp()}{default_suffix}"
 
     if output_path.suffix.lower() != default_suffix:
         output_path = output_path.with_suffix(default_suffix)
@@ -1956,7 +1971,7 @@ def build_parser() -> TraceLensArgumentParser:
     )
     report_parser.add_argument(
         "--output-dir",
-        default=str(PROJECT_ROOT),
+        default=None,
         metavar="DIR",
         help="Directory where generated report files should be saved.",
     )
